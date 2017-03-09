@@ -128,6 +128,11 @@ def read_netstat(synet):
             if dst.is_multicast or dst.is_loopback:
                 continue
 
+            try:
+                p = synet.port_by_name(iface)
+            except KeyError:
+                continue
+
             if is_ipaddr(gwip):
                 gwip = IPv4Address(gwip)
             elif is_ethaddr(gwip):

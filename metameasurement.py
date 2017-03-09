@@ -57,6 +57,10 @@ class MeasurementObserver(object):
 
     def run(self):
         self._routes = read_netstat(self._net)
+        for prefix in self._routes:
+            print("{} -> {}".format(prefix, self._routes[prefix]))
+        for p in self._net.ports():
+            print("{}".format(p))
 
         #self._swthread = Thread(target=self._swyard_loop)
         #self._swthread.start()
