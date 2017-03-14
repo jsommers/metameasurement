@@ -1,23 +1,39 @@
 import sys
 import re
-from ipaddress import IPv4Network
+from ipaddress import IPv4Network, IPv4Interface
 from collections import defaultdict
-from subprocess import check_output, PIPE, STDOUT
+from subprocess import check_output, PIPE, STDOUT, getstatusoutput
 
 from pytricia import PyTricia
-from switchyard.lib.userlib import *
 
-class InterfaceInfo(object):
-    def __init__(self, swyif):
-        self._ethsrc = swyif.ethaddr 
-        self._ipsrc = swyif.ipaddr
-        self._ifname = swyif.name
-        self._ethdst = EthAddr("00:00:00:00:00:00")
-        self._ipdst = IPv4Address("0.0.0.0")
+from switchyard.pcapffi import pcap_devices
+from switchyard.lib.interface import InterfaceType
+from switchyard.lib.address import *
+
+
+class NextHop(object):
+    def __init__(self, network, interface, ipaddr, ethaddr=None):
+        self._network = network
+        self._interface = interface
+        self._ipaddr = ipaddr
+        self._ethaddr = ethaddr
 
     def __str__(self):
-        return "{} {}-{} -> {}-{}".format(self._ifname,
-            self._ethsrc, self._ipsrc, self._ethdst, self._ipdst)
+        return "{} -> {} {} {}".format(self._network,
+            self._interface, self._ipaddr, self._ethaddr)
+
+
+class InterfaceInfo(object):
+    def __init__(self, name, localeth, localip, ifnum, iftype):
+        self._ethsrc = localeth
+        self._ipsrc = localip
+        self._ifname = name
+        self._ifnum = ifnum
+        self._iftype = iftype
+
+    def __str__(self):
+        return "{} {} {} {} {}".format(self._ifname, self._ifnum, self._iftype,
+            self._ethsrc, self._ipsrc)
 
     def make_ethhdr(self):
         return Ethernet(src=self._ethsrc, dst=self._ethdst)
@@ -27,46 +43,80 @@ class InterfaceInfo(object):
         return self._ethsrc
 
     @property
-    def ethdst(self):
-        return self._ethdst
-
-    @ethdst.setter
-    def ethdst(self, value):
-        self._ethdst = EthAddr(value)
-
-    @property
     def ipsrc(self):
         return self._ipsrc
-
-    @property
-    def ipdst(self):
-        return self._ipdst
-
-    @ipdst.setter
-    def ipdst(self, value):
-        self._ipdst = IPv4Address(value)
 
     @property
     def name(self):
         return self._ifname
 
-# def get_iface_addrs(name):
-#     cproc = check_output("ifconfig {}".format(name), shell=True,
-#         universal_newlines=True)
-#     s = cproc.stdout    
-#     ethpat = re.compile(r'(ether|HWaddr)\s+(?P<addr>[0-9a-fA-F]{1,2}(:[0-9a-fA-F]{1,2}){5})', re.MULTILINE)
-#     ipv4pat = re.compile(r'(inet|inet addr:)\s+(?P<addr>\d+(\.\d+){3})', re.MULTILINE)
-#     ethaddr = "0:0:0:0:0:0"
-#     ipv4 = IPv4Address("0.0.0.0")
-#     mobj = ethpat.search(s)
-#     if mobj:
-#         ethaddr = mobj.group('addr')
-#     mobj = ipv4pat.search(s)
-#     if mobj:
-#         ipv4 = IPv4Address(mobj.group('addr'))
-#     return ethaddr,ipv4
 
-def read_netstat(synet):
+def get_interface_info(ifname_list):
+    def assemble_devinfo(pcapdev):
+        '''
+        Internal fn.  Assemble information on each interface/
+        device that we know about, i.e., its MAC address and configured
+        IP address and prefix.
+        '''
+        # beautiful/ugly regular expressions
+        ethaddr_match = r'([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})'
+        if sys.platform == 'linux':
+            etherpat = re.compile("HWaddr\s+{}".format(ethaddr_match), re.MULTILINE)
+            ip4pat = re.compile(r'inet addr:(?P<ipaddr>\d{1,3}(\.\d{1,3}){3})', re.MULTILINE)
+            ip4maskpat = re.compile(r'Mask:(?P<mask>\d{1,3}(\.\d{1,3}){3})', re.MULTILINE)
+        elif sys.platform == 'darwin':
+            etherpat = re.compile("ether\s+{}".format(ethaddr_match), re.MULTILINE)
+            osxip = r'inet\s+(?P<ipaddr>\d{1,3}(\.\d{1,3}){3})'
+            ip4pat = re.compile(osxip, re.MULTILINE)
+            ip4maskpat = re.compile(r'netmask\s+(?P<mask>0x[0-9a-f]{8})', re.MULTILINE)
+        else:
+            raise NotImplementedError("Unsupported platform {}".format(sys.platform))
+
+        if pcapdev.isloop:
+            iftype = InterfaceType.Loopback
+        else:
+            if sys.platform == 'linux':
+                st,output = getstatusoutput(["iwconfig", pcapdev.name])
+                if "no wireless extensions" in output:
+                    iftype = InterfaceType.Wired
+                else:
+                    iftype = InterfaceType.Wireless
+            elif sys.platform == 'darwin':
+                iftype = InterfaceType.Unknown
+            else:
+                iftype = InterfaceType.Unknown
+
+        macaddr = ipaddr = mask = None
+        st,output = getstatusoutput("ifconfig {}".format(pcapdev.name))
+
+        if isinstance(output, bytes):
+            output = output.decode('ascii','')
+
+        mobj = etherpat.search(output)
+        if mobj:
+            macaddr = EthAddr(mobj.groups()[0])
+        mobj = ip4pat.search(output)
+        if mobj:
+            ipaddr = IPv4Address(mobj.group('ipaddr'))
+        mobj = ip4maskpat.search(output)
+        if mobj:
+            mask = mobj.group('mask')
+            if mask.startswith('0x'):
+                mask = IPv4Address(int(mask, base=16))
+            else:
+                mask = IPv4Address(mask)
+        ifnum = socket.if_nametoindex(pcapdev.name)
+        return InterfaceInfo(pcapdev.name, macaddr, IPv4Interface("{}/{}".format(ipaddr, mask)), ifnum, iftype)
+
+    pdevs = [ p for p in pcap_devices() if p.name in ifname_list ]
+    if not pdevs:
+        print("No interfaces found to use")
+        return ifdict
+    interfaces = [ assemble_devinfo(p) for p in pdevs ]
+    ifdict = dict([(intf.name,intf) for intf in interfaces])
+    return ifdict
+
+def get_routes(ifdict):
     def get_value(name, info, headers):
         if name == 'dst':
             dstip = info[headers.index('Destination')]
@@ -112,7 +162,7 @@ def read_netstat(synet):
 
     headers = []
     for line in s.split('\n'):
-        dst = gwip = iface = dsteth = None
+        dst = gwip = iface = None
         if line.startswith('Destination'):
             headers = line.split()
         elif len(line) > 0 and \
@@ -128,47 +178,35 @@ def read_netstat(synet):
             if dst.is_multicast or dst.is_loopback:
                 continue
 
-            try:
-                p = synet.port_by_name(iface)
-            except KeyError:
+            if iface not in ifdict:
                 continue
 
             if is_ipaddr(gwip):
                 gwip = IPv4Address(gwip)
             elif is_ethaddr(gwip):
-                dsteth = EthAddr(gwip)
-                gwip = None
+                continue
             else:
                 gwip = IPv4Address('0.0.0.0')
 
-            # print(dst,gwip,dsteth,iface)
+            # print(dst,gwip,iface)
 
             if routes.has_key(dst):
+                # print("Already have nh for {}: {}".format(dst, routes[dst]))
                 ii = routes[dst]
             else:
-                ii = InterfaceInfo(synet.port_by_name(iface))
-                if dst.prefixlen == 32:
-                    ii.ipdst = dst.network_address
-                routes[dst] = ii
-
-            if gwip is not None and gwip != IPv4Address("0.0.0.0"):
-                ii.ipdst = gwip
-
-            if dsteth is not None:
-                for prefix in routes:
-                    ii = routes[prefix] 
-                    if IPv4Network(prefix) == dst:
-                        ii.ethdst = dsteth
-                        ii.ipdst = dst.network_address
-                    elif ii.ipdst == dst or ii.ipdst == dst.network_address:
-                        ii.ethdst = dsteth
-
-    #for dst in routes:
-    #    ii = routes[dst]
-    #    print("dst {} is through {}".format(dst, ii))
+                nh = NextHop(dst, iface, gwip)
+                routes[dst] = nh
 
     return routes
 
 if __name__ == '__main__':
-    read_netstat()
+    ifdict = get_interface_info(['en0'])
+    routes = get_routes(ifdict)
+
+    for ifx in ifdict:
+        print("{}: {}".format(ifx, ifdict[ifx]))
+
+    for dst in routes:
+        ii = routes[dst]
+        print("{}: {}".format(dst, ii))
 

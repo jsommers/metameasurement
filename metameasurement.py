@@ -10,7 +10,7 @@ from collections import defaultdict
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
 
-# from localnet import InterfaceInfo, read_netstat
+from localnet import get_interface_info, get_routes
 
 def _create_decoder():
     _dlt_to_decoder = {}
@@ -37,6 +37,7 @@ class MeasurementObserver(object):
         signal.signal(signal.SIGINT, self._sig_catcher)
         signal.signal(signal.SIGTERM, self._sig_catcher)
         self._ports = {}
+        self._ifinfo = self._routes = None
 
     def add_port(self, ifname, filterstr=''):
         # p = pcapffi.PcapLiveDevice('en0', filterstr="icmp")
@@ -103,9 +104,13 @@ class MeasurementObserver(object):
                 return pkt[Arp].targethwaddr
 
     def run(self):
-        #self._routes = read_netstat()
-        #for prefix in self._routes:
-        #    print("{} -> {}".format(prefix, self._routes[prefix]))
+        self._ifinfo = get_interface_info(self._ports.keys())
+        self._routes = get_routes(self._ifinfo)
+
+        for intf in self._ifinfo:
+            print("{} -> {}".format(intf, self._ifinfo[intf]))
+        for prefix in self._routes:
+            print("{} -> {}".format(prefix, self._routes[prefix]))
 
         #self._swthread = Thread(target=self._swyard_loop)
         #self._swthread.start()
