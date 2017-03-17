@@ -12,15 +12,26 @@ from switchyard.lib.address import *
 
 
 class NextHop(object):
-    def __init__(self, network, interface, ipaddr, ethaddr=None):
+    def __init__(self, network, interface, ipaddr):
         self._network = network
         self._interface = interface
         self._ipaddr = ipaddr
-        self._ethaddr = ethaddr
+
+    @property
+    def destination(self):
+        return self._network
+
+    @property
+    def interface(self):
+        return self._interface
+
+    @property
+    def nexthop(self):
+        return self._ipaddr
 
     def __str__(self):
-        return "{} -> {} {} {}".format(self._network,
-            self._interface, self._ipaddr, self._ethaddr)
+        return "{} -> {} {}".format(self._network,
+            self._interface, self._ipaddr)
 
 
 class InterfaceInfo(object):

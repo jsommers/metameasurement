@@ -6,6 +6,7 @@ from time import time
 import functools
 from ipaddress import IPv4Network
 from collections import defaultdict
+import logging
 
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
@@ -17,30 +18,40 @@ def _create_decoder():
     _dlt_to_decoder[pcapffi.Dlt.DLT_EN10MB] = lambda raw: Packet(raw, first_header=Ethernet)
     _dlt_to_decoder[pcapffi.Dlt.DLT_NULL] = lambda raw: Packet(raw, first_header=Null)
     _null_decoder = lambda raw: RawPacketContents(raw)
-
     def decode(dlt, xbytes):
         try:
             pkt = _dlt_to_decoder[dlt](xbytes)
         except: # could be KeyError or failure in pkt reconstruction
             pkt = _null_decoder(xbytes)
         return pkt
-
     return decode
 
 decode_packet = _create_decoder()
 
 class MeasurementObserver(object):
-    def __init__(self):
+    def __init__(self, debug):
         self._asyncloop = asyncio.SelectorEventLoop()
         asyncio.set_event_loop(self._asyncloop)
         self._running = True
-        signal.signal(signal.SIGINT, self._sig_catcher)
-        signal.signal(signal.SIGTERM, self._sig_catcher)
+        self._asyncloop.add_signal_handler(signal.SIGINT, self._sig_catcher)
+        self._asyncloop.add_signal_handler(signal.SIGTERM, self._sig_catcher)
         self._ports = {}
         self._ifinfo = self._routes = None
+        self._arp_cache = {}
+        self._arp_queue = asyncio.Queue()
+        self._icmp_queue = asyncio.Queue()
+        self._debug = debug
+        self._log = logging.getLogger('mm')
+        logging.basicConfig(format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
+
+        if self._debug:
+            logging.basicConfig(level=logging.DEBUG)
+            self._log.setLevel(logging.DEBUG)
+            self._asyncloop.set_debug(True)
+        else:
+            logging.basicConfig(level=logging.INFO)
 
     def add_port(self, ifname, filterstr=''):
-        # p = pcapffi.PcapLiveDevice('en0', filterstr="icmp")
         p = pcapffi.PcapLiveDevice(ifname, filterstr=filterstr)
         self._ports[ifname] = p
         self._asyncloop.add_reader(p.fd, 
@@ -49,59 +60,53 @@ class MeasurementObserver(object):
     def _cleanup(self):
         # close pcap devices
         for ifname,pcapdev in self._ports.items():
-            print("Closing {}: {}".format(ifname, pcapdev.stats()))
+            self._log.info("Closing {}: {}".format(ifname, pcapdev.stats()))
             pcapdev.close()
+        self._asyncloop.stop()
 
     def _sig_catcher(self, *args):
-        self._asyncloop.stop()
-        self._asyncloop.call_soon_threadsafe(self._cleanup)
-
-#    def _swyard_loop(self):
-#        while True:
-#            if not self._running:
-#                break
-#
-#            try:
-#                recvdata = self._net.recv_packet(timeout=1.0)
-#            except NoPackets:
-#                continue
-#            except Shutdown:
-#                self._running = False
-#                return
+        self._log.debug("Caught signal")
+        self._asyncloop.call_soon(self._cleanup)
 
     def _packet_arrival_callback(self, pcapdev=None):
         p = pcapdev.recv_packet_or_none()
         name = pcapdev.name
         pkt = decode_packet(pcapdev.dlt, p.raw)
         ts = p.timestamp
-        print(name,ts,pkt)
+        ptup = (name,ts,pkt)
 
-    def _do_arp(self, ifinfo):
-        attempts = 3
+        if pkt.has_header(Arp) and \
+            pkt[Arp].operation == ArpOperation.Reply: 
+            # and \
+            #pkt[Arp].targetprotoaddr == ifinfo.ipdst:
+            log_debug("Got ARP response: {}".format(pkt[Arp]))
+            #result = await self._arp_queue.put(ptup)
+            # return pkt[Arp].targethwaddr
+        elif pkt.has_header(ICMP):
+            pass
+            # result = await self._icmp_queue.put(ptup)
+        else:
+            print("Ignoring packet {}".format(ptup))
+
+    def _send_packet(self, intf, pkt):
+        assert(intf in self._ports)
+        assert(isinstance(pkt, Packet))
+        pcapdev = self._ports[intf]
+        pcapdev.send_packet(pkt.to_bytes())
+
+    async def _do_arp(self, dst, intf):
+        ifinfo = self._ifinfo[intf]
         arpreq = create_ip_arp_request(ifinfo.ethsrc, 
-            ifinfo.ipsrc, ifinfo.ipdst)
+            ifinfo.ipsrc.ip, dst)
         fareth = "00:00:00:00:00:00"
-        nextattempt = time()
+        self._send_packet(ifinfo.name, arpreq)
 
-        while attempts > 0:
-            now = time()
-            if now >= nextattempt:
-                attempts -= 1
-                self._net.send_packet(ifinfo.name, arpreq)
-                nextattempt += 1
-
-            try:
-                ts,iface,pkt = self._net.recv_packet(timeout=1.0)
-            except NoPackets:
-                continue
-            except Shutdown:
-                return
-                    
-            if pkt.has_header(Arp) and \
-                pkt[Arp].operation == ArpOperation.Reply and \
-                pkt[Arp].targetprotoaddr == ifinfo.ipdst:
-                log_debug("Got ARP response: {}".format(pkt[Arp]))
-                return pkt[Arp].targethwaddr
+    async def _ping(self, dst):
+        print("send ping to {}".format(dst))
+        nh = self._routes[dst]
+        print(nh)
+        ethaddr = await self._do_arp(nh.nexthop, nh.interface)
+        print("ethaddr from coroutine: {}".format(ethaddr))
 
     def run(self):
         self._ifinfo = get_interface_info(self._ports.keys())
@@ -111,6 +116,8 @@ class MeasurementObserver(object):
             print("{} -> {}".format(intf, self._ifinfo[intf]))
         for prefix in self._routes:
             print("{} -> {}".format(prefix, self._routes[prefix]))
+
+        # self._asyncloop.create_task(self._ping('149.43.80.25'))
 
         #self._swthread = Thread(target=self._swyard_loop)
         #self._swthread.start()
@@ -127,9 +134,10 @@ class MeasurementObserver(object):
 
 
 def main():
-    m = MeasurementObserver()
-    m.add_port('en0', 'icmp')
+    m = MeasurementObserver(True)
+    m.add_port('en0', 'icmp or arp')
     m.run()
 
 if __name__ == '__main__':
     main()
+
