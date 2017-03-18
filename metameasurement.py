@@ -1,5 +1,6 @@
 import sys
 import re
+import os
 import asyncio
 import signal
 from time import time
@@ -42,6 +43,7 @@ class MeasurementObserver(object):
         self._icmp_queue = asyncio.Queue()
         self._debug = debug
         self._log = logging.getLogger('mm')
+        self._pid = os.getpid()
         logging.basicConfig(format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
 
         if self._debug:
@@ -63,30 +65,34 @@ class MeasurementObserver(object):
             self._log.info("Closing {}: {}".format(ifname, pcapdev.stats()))
             pcapdev.close()
         self._asyncloop.stop()
+        if not self._monfut.done():
+            self._monfut.cancel()
 
     def _sig_catcher(self, *args):
         self._log.debug("Caught signal")
         self._asyncloop.call_soon(self._cleanup)
 
     def _packet_arrival_callback(self, pcapdev=None):
-        p = pcapdev.recv_packet_or_none()
-        name = pcapdev.name
-        pkt = decode_packet(pcapdev.dlt, p.raw)
-        ts = p.timestamp
-        ptup = (name,ts,pkt)
+        while True:
+            p = pcapdev.recv_packet_or_none()
+            if p is None:
+                break
 
-        if pkt.has_header(Arp) and \
-            pkt[Arp].operation == ArpOperation.Reply: 
-            # and \
-            #pkt[Arp].targetprotoaddr == ifinfo.ipdst:
-            log_debug("Got ARP response: {}".format(pkt[Arp]))
-            #result = await self._arp_queue.put(ptup)
-            # return pkt[Arp].targethwaddr
-        elif pkt.has_header(ICMP):
-            pass
-            # result = await self._icmp_queue.put(ptup)
-        else:
-            print("Ignoring packet {}".format(ptup))
+            name = pcapdev.name
+            pkt = decode_packet(pcapdev.dlt, p.raw)
+            ts = p.timestamp
+            ptup = (name,ts,pkt)
+
+            if pkt.has_header(Arp) and \
+              pkt[Arp].operation == ArpOperation.Reply: 
+                a = pkt[Arp]
+                self._log.debug("Got ARP response: {}-{}".format(a.senderhwaddr, a.senderprotoaddr))
+                self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
+            elif pkt.has_header(ICMP):
+                self._log.debug("Got ICMP pkt on {}: {}".format(name, pkt))
+                self._icmp_queue.put_nowait((ts,pkt))
+            else:
+                self._log.debug("Ignoring packet from {}: {}".format(name, pkt))
 
     def _send_packet(self, intf, pkt):
         assert(intf in self._ports)
@@ -95,18 +101,44 @@ class MeasurementObserver(object):
         pcapdev.send_packet(pkt.to_bytes())
 
     async def _do_arp(self, dst, intf):
+        if dst in self._arp_cache:
+            return self._arp_cache[dst]
         ifinfo = self._ifinfo[intf]
         arpreq = create_ip_arp_request(ifinfo.ethsrc, 
             ifinfo.ipsrc.ip, dst)
         fareth = "00:00:00:00:00:00"
         self._send_packet(ifinfo.name, arpreq)
+        while True:
+            ethaddr,ipaddr = await self._arp_queue.get()
+            self._arp_cache[ipaddr] = ethaddr
+            if ipaddr == dst:
+                break
+        return ethaddr
 
     async def _ping(self, dst):
-        print("send ping to {}".format(dst))
+        self._log.debug("send ping to {}".format(dst))
         nh = self._routes[dst]
-        print(nh)
+        self._log.debug("ARPing for next hop: {}".format(nh))
         ethaddr = await self._do_arp(nh.nexthop, nh.interface)
-        print("ethaddr from coroutine: {}".format(ethaddr))
+        self._log.debug("Got ethaddr for nh: {}".format(ethaddr))
+        thisintf = self._ifinfo[nh.interface]
+        pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
+            IPv4(src=thisintf.ipsrc.ip, dst=dst, protocol=IPProtocol.ICMP,
+                ttl=2) + \
+            ICMP(icmptype=ICMPType.EchoRequest,
+                identifier=self._pid%65535,
+                sequence=1)
+        sendtime = time()
+        self._send_packet(nh.interface, pkt)
+        ts,pkt = await self._icmp_queue.get()
+        rtt = ts-sendtime
+        self._log.info("icmp response: rtt {} pkt {}".format(rtt,pkt))
+        return 0
+
+    async def _monitor_first_n_hops(self, future):
+        self._log.debug("Inside mon coroutine")
+        t = await self._ping('149.43.80.25')
+        future.set_result(t)
 
     def run(self):
         self._ifinfo = get_interface_info(self._ports.keys())
@@ -117,8 +149,9 @@ class MeasurementObserver(object):
         for prefix in self._routes:
             print("{} -> {}".format(prefix, self._routes[prefix]))
 
-        # self._asyncloop.create_task(self._ping('149.43.80.25'))
-
+        self._monfut = asyncio.Future()
+        asyncio.ensure_future(self._monitor_first_n_hops(self._monfut))
+        
         #self._swthread = Thread(target=self._swyard_loop)
         #self._swthread.start()
         #self._prepost_profile()
@@ -131,6 +164,8 @@ class MeasurementObserver(object):
 
         self._asyncloop.run_forever()
         self._asyncloop.close()
+
+        self._log.info('future result: {!r}'.format(self._monfut.result()))
 
 
 def main():
