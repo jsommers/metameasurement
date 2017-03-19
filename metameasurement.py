@@ -68,8 +68,15 @@ class MeasurementObserver(object):
         if not self._monfut.done():
             self._monfut.cancel()
 
+    def _shutdown(self, future):
+        self._log.debug("tool done; shutting down")
+        self._log.debug("result: {}".format(future.result()))
+        self._done = True
+        self._asyncloop.call_soon(self._cleanup)
+
     def _sig_catcher(self, *args):
         self._log.debug("Caught signal")
+        self._done = True
         self._asyncloop.call_soon(self._cleanup)
 
     def _packet_arrival_callback(self, pcapdev=None):
@@ -89,10 +96,38 @@ class MeasurementObserver(object):
                 self._log.debug("Got ARP response: {}-{}".format(a.senderhwaddr, a.senderprotoaddr))
                 self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
             elif pkt.has_header(ICMP):
-                self._log.debug("Got ICMP pkt on {}: {}".format(name, pkt))
-                self._icmp_queue.put_nowait((ts,pkt))
+                self._log.debug("Got something ICMP")
+                if (pkt[ICMP].icmptype == ICMPType.EchoReply and \
+                    pkt[ICMP].icmpdata.identifier == self._icmpident):
+                    seq = pkt[ICMP].icmpdata.sequence
+                    self._log.debug("Got ICMP response on {} at {}: {}".format(name, ts, pkt))
+                    self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
+                elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
+                    p = Packet(pkt[ICMP].icmpdata.data, first_header=IPv4) 
+                    if p[ICMP].icmpdata.identifier == self._icmpident:
+                        self._log.debug("Got ICMP excerr on {} at {}: {}".format(name, ts, pkt))
+                        self._log.debug("orig pkt: {}".format(p))
+                        seq = p[ICMP].icmpdata.sequence
+                        ident = p[ICMP].icmpdata.identifier
+                        self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
+                elif pkt[ICMP].icmptype == ICMPType.EchoRequest and \
+                    pkt[ICMP].icmpdata.identifier == self._icmpident:
+                        self._log.debug("Got our request pkt on {} at {}: {}".format(name, ts, pkt))
+                        seq = pkt[ICMP].icmpdata.sequence
+                        self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
             else:
                 self._log.debug("Ignoring packet from {}: {}".format(name, pkt))
+
+    async def _run_tool(self, commandline, future):
+        create = asyncio.create_subprocess_shell(commandline, 
+                                                 stdout=asyncio.subprocess.PIPE,
+                                                 stderr=asyncio.subprocess.STDOUT)
+        proc = await create
+        print("process id {} started".format(proc.pid))
+        output = await proc.communicate() # assumes that data to read is not too large
+        print("process output: {}".format(output))
+        print("process returnval: {}".format(proc.returncode))
+        future.set_result(proc.returncode)
 
     def _send_packet(self, intf, pkt):
         assert(intf in self._ports)
@@ -122,25 +157,36 @@ class MeasurementObserver(object):
         ethaddr = await self._do_arp(nh.nexthop, nh.interface)
         self._log.debug("Got ethaddr for nh: {}".format(ethaddr))
         thisintf = self._ifinfo[nh.interface]
+        self._icmpident = self._pid%65535
         pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
             IPv4(src=thisintf.ipsrc.ip, dst=dst, protocol=IPProtocol.ICMP,
                 ttl=2) + \
             ICMP(icmptype=ICMPType.EchoRequest,
-                identifier=self._pid%65535,
+                identifier=self._icmpident,
                 sequence=1)
-        sendtime = time()
+        self._log.debug("Emitting icmp echo request: {}".format(pkt))
         self._send_packet(nh.interface, pkt)
-        ts,pkt = await self._icmp_queue.get()
-        rtt = ts-sendtime
+
+        # FIXME: should run in a separate task; just retrieve from queue
+        # while we're running and keep accounting.  stop when everything shuts
+        # down
+        # while not self._icmp_queue.empty()
+        # get another packet from queue and add to accting data structure
+        ts1,seq1,src1,pkt = await self._icmp_queue.get()
+        ts2,seq2,src2,pkt = await self._icmp_queue.get()
+        rtt = ts2-ts1
+        assert(seq1==seq2)
         self._log.info("icmp response: rtt {} pkt {}".format(rtt,pkt))
         return 0
 
     async def _monitor_first_n_hops(self, future):
         self._log.debug("Inside mon coroutine")
-        t = await self._ping('149.43.80.25')
-        future.set_result(t)
+        while not self._done:
+            t = await self._ping('149.43.80.25')
+            waiter = asyncio.sleep(1) # fixme: should be adaptive
+            await waiter
 
-    def run(self):
+    def run(self, commandline):
         self._ifinfo = get_interface_info(self._ports.keys())
         self._routes = get_routes(self._ifinfo)
 
@@ -149,29 +195,31 @@ class MeasurementObserver(object):
         for prefix in self._routes:
             print("{} -> {}".format(prefix, self._routes[prefix]))
 
+        # self._prepost_profile()
+
         self._monfut = asyncio.Future()
         asyncio.ensure_future(self._monitor_first_n_hops(self._monfut))
-        
-        #self._swthread = Thread(target=self._swyard_loop)
-        #self._swthread.start()
-        #self._prepost_profile()
-        # self._runtool()
 
-#    # l = asyncio.get_event_loop()
-#    # t = l.time()
-#    # l.call_later(relsec)
-#    # l.call_at(abssec)
+        self._toolfut = asyncio.Future()
+        asyncio.ensure_future(self._run_tool(commandline, self._toolfut))
+        self._toolfut.add_done_callback(self._shutdown)
+        
+        # l = asyncio.get_event_loop()
+        # t = l.time()
+        # l.call_later(relsec)
+        # l.call_at(abssec)
 
         self._asyncloop.run_forever()
         self._asyncloop.close()
 
-        self._log.info('future result: {!r}'.format(self._monfut.result()))
+        #self._log.info('monfuture result: {!r}'.format(self._monfut.result()))
 
 
 def main():
     m = MeasurementObserver(True)
     m.add_port('en0', 'icmp or arp')
-    m.run()
+    commandline = "sleep 5"
+    m.run(commandline)
 
 if __name__ == '__main__':
     main()
