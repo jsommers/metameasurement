@@ -1,5 +1,6 @@
 from abc import abstractmethod
-from subprocess import Popen, PIPE, STDOUT, run
+# from subprocess import Popen, PIPE, STDOUT, run
+import asyncio
 from time import sleep, time
 import re
 
@@ -34,10 +35,10 @@ class TopCommandParser(ObservationParser):
     _keys = ('load1min','load5min','load15min','cpuuser','cpusys','cpuidle')
 
     @staticmethod
-    def parse(completed_process):
-        loadm = TopCommandParser._loadre.search(completed_process.stdout)
+    def parse(output):
+        loadm = TopCommandParser._loadre.search(output)
         loadvals = tuple(map(float, loadm.groups()))
-        cpum = TopCommandParser._cpure.search(completed_process.stdout)
+        cpum = TopCommandParser._cpure.search(output)
         cpuvals = tuple(map(float, cpum.groups()))
         return dict(zip(TopCommandParser._keys, loadvals+cpuvals))
 
@@ -47,11 +48,11 @@ class IostatCommandParser(ObservationParser):
     _keys = ('KB/t','tps','MB/s')
 
     @staticmethod
-    def parse(completed_process):
+    def parse(output):
         # first line shows name of each device
         # second line shows headers for each device
         # third line are device stats
-        s = completed_process.stdout.split('\n')
+        s = output.split('\n')
         devices = s[0].split()
         stats = map(float, s[2].split())
         keys = ['_'.join((d,sk)) for sk in IostatCommandParser._keys \
@@ -69,8 +70,8 @@ class NetstatIfaceStatsCommandParser(ObservationParser):
             NetstatIfaceStatsCommandParser.command.format(iface)
 
     @staticmethod
-    def parse(completed_process):
-        s = completed_process.stdout.split('\n')[1]
+    def parse(output):
+        s = output.split('\n')[1]
         keys = [ '_'.join((NetstatIfaceStatsCommandParser._iface, k)) for k in NetstatIfaceStatsCommandParser._keys ]
         return dict(zip(keys, map(int, s.split()[4:])))
 
@@ -80,18 +81,24 @@ class SystemObserver(object):
         self._results = []
         self._parser = parser
 
-    def __call__(self):
+    async def __call__(self):
         now = time()
-        completed_proc = run(self._parser.command, shell=True, 
-            universal_newlines=True, stdout=PIPE, stderr=STDOUT)
-        if completed_proc.returncode==0:
-            self._results.append( (now, self._parser.parse(completed_proc)) )
+        #completed_proc = run(self._parser.command, shell=True, 
+        #    universal_newlines=True, stdout=PIPE, stderr=STDOUT)
+        create = asyncio.create_subprocess_shell(self._parser.command, 
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT)
+        proc = await create
+        stdout,stderr = await proc.communicate()
+        stdout = stdout.decode('utf8')
+
+        if proc.returncode==0:
+            self._results.append( (now, self._parser.parse(stdout)) )
         else:
-            self._results.append( (now, {'error':completed_proc.stdout}) )
+            self._results.append( (now, {'error':stdout}) )
 
     def results(self):
         return self._results
-
 
         #lsof1 = "lsof -S 3 -n -p {}"
         #lsof2 = "lsof -S 3 -n -i UDP -i TCP"
@@ -100,14 +107,24 @@ class SystemObserver(object):
         # vmmap (root required)
 
 if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+
     x = SystemObserver(TopCommandParser)
-    x()
-    print(x.results())
+    asyncio.ensure_future(x())
 
     y = SystemObserver(IostatCommandParser)
-    y()
-    print(y.results())
+    asyncio.ensure_future(y())
 
     z = SystemObserver(NetstatIfaceStatsCommandParser('en0'))
-    z()
+    asyncio.ensure_future(z())
+
+    try:
+        loop.run_forever()
+    except:
+        pass
+    finally:
+        loop.close()
+
+    print(x.results())
+    print(y.results())
     print(z.results())
