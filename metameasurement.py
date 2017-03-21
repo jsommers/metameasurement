@@ -62,6 +62,7 @@ class MeasurementObserver(object):
             self._log.setLevel(logging.DEBUG)
             self._asyncloop.set_debug(True)
         else:
+            self._log.setLevel(logging.INFO)
             logging.basicConfig(level=logging.INFO)
 
     def add_port(self, ifname, filterstr=''):
@@ -75,7 +76,7 @@ class MeasurementObserver(object):
         asyncio.ensure_future(sysobserver())
 
     def _cleanup(self):
-        # close pcap devices
+        # close pcap devices and get stats from them
         self._pcapstats = {}
         for ifname,pcapdev in self._ports.items():
             s = pcapdev.stats()
@@ -272,7 +273,7 @@ class MeasurementObserver(object):
         asyncio.ensure_future(self._ping_collector(self._monfut))
         while not self._done:
             try:
-                t = await self._ping('149.43.80.25')
+                t = await self._ping('8.8.8.8')
             except asyncio.CancelledError:
                 break
             try:
@@ -280,6 +281,7 @@ class MeasurementObserver(object):
             except asyncio.CancelledError:
                 break
             cpuidle = float(self._monitors['cpu'].results.compute_stat(mean, 'cpuidle', 2))
+            self._log.info("Current idle cpu {}".format(cpuidle))
             if cpuidle < 10:
                 self._mon_interval *= 2.0
             elif cpuidle > 80:
@@ -332,7 +334,7 @@ def main():
     parser = argparse.ArgumentParser(
             description='Automatic generation of active measurement metadata')
     parser.add_argument('-d', '-v', '--verbose', '--debug', 
-                        dest='verbose', action='store_true', default=True,
+                        dest='verbose', action='store_true', default=False,
                         help='Turn on verbose/debug output.')
     parser.add_argument('-f', '--fileprefix', dest='fileprefix', type=str, default='metadata',
                         help='Prefix for filename that includes metadata for a given run.')
