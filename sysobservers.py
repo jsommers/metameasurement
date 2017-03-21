@@ -104,10 +104,10 @@ class ResultsContainer(object):
         return dict(zip(klist,vlist))
 
     def __str__(self):
-        return str(self.summary())
+        return str(self.summary(mean))
 
     def __repr__(self):
-        return repr(self.summary())
+        return repr(self.summary(mean))
 
     def all(self):
         return self._results
@@ -125,8 +125,14 @@ class SystemObserver(object):
             create = asyncio.create_subprocess_shell(self._parser.command, 
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT)
-            proc = await create
-            stdout,stderr = await proc.communicate()
+            try:
+                proc = await create
+            except asyncio.CancelledError:
+                break
+            try:
+                stdout,stderr = await proc.communicate()
+            except asyncio.CancelledError:
+                break
             stdout = stdout.decode('utf8')
 
             if proc.returncode==0:
@@ -139,7 +145,10 @@ class SystemObserver(object):
 
             if asyncio.Task.current_task().cancelled():
                 break
-            await asyncio.sleep(self._interval)
+            try:
+                await asyncio.sleep(self._interval)
+            except asyncio.CancelledError:
+                break
 
     def stop(self):
         self._done = True
@@ -165,14 +174,14 @@ if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGINT, sig_catch)
 
-    x = SystemObserver(TopCommandParser)
-    f = asyncio.ensure_future(x())
+    #x = SystemObserver(TopCommandParser)
+    #f = asyncio.ensure_future(x())
 
     #y = SystemObserver(IostatCommandParser)
-    #asyncio.ensure_future(y())
-#
-#    z = SystemObserver(NetstatIfaceStatsCommandParser('en0'))
-#    asyncio.ensure_future(z())
+    #f = asyncio.ensure_future(y())
+
+    z = SystemObserver(NetstatIfaceStatsCommandParser('en0'))
+    f = asyncio.ensure_future(z())
 
     try:
         loop.run_forever()
@@ -180,19 +189,15 @@ if __name__ == '__main__':
         pass
     finally:
         print("here we are...")
-        x.stop()
         f.cancel()
-        # asyncio.get_event_loop().run_until_complete(f)
-        asyncio.wait_for(f, 1.0)
         loop.close()
 
     from statistics import mean, stdev, median, variance
 
-    print(x.results)
-    print(x.results.last_result('cpuidle'))
-    print(x.results.compute_stat(mean, 'cpuidle', 2))
-    print(x.results.compute_stat(mean, 'cpuidle'))
-    print(x.results.compute_stat(median, 'cpuidle'))
+    #print(x.results)
+    #print(x.results.last_result('cpuidle'))
+    #print(x.results.compute_stat(mean, 'cpuidle', 2))
+    #print(x.results.compute_stat(mean, 'cpuidle'))
+    #print(x.results.compute_stat(median, 'cpuidle'))
 
-    #print(y.results())
-    #print(z.results())
+    print(z.results.all())

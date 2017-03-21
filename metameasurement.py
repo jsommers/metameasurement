@@ -347,7 +347,7 @@ def main():
     m.add_port('en0', 'icmp or arp')
     m.add_monitor('cpu', SystemObserver(TopCommandParser))
     m.add_monitor('io', SystemObserver(IostatCommandParser))
-    m.add_monitor('netstat', SystemObserver(NetstatIfaceStatsCommandParser))
+    m.add_monitor('netstat', SystemObserver(NetstatIfaceStatsCommandParser('en0')))
     commandline = "sleep 5"
     m.run(args.commandline)
 
