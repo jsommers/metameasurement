@@ -6,6 +6,9 @@ import signal
 
 from switchyard.lib.userlib import *
 
+__all__ = ['TopCommandParser', 'IostatCommandParser', 'NetstatIfaceStatsCommandParser', 
+    'SystemObserver', 'ResultsContainer']
+
 class ObservationParser(object):
     '''
     A command + parser for some system tool from which host performance
@@ -105,6 +108,9 @@ class ResultsContainer(object):
 
     def __repr__(self):
         return repr(self.summary())
+
+    def all(self):
+        return self._results
 
 
 class SystemObserver(object):

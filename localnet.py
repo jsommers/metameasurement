@@ -10,6 +10,7 @@ from switchyard.pcapffi import pcap_devices
 from switchyard.lib.interface import InterfaceType
 from switchyard.lib.address import *
 
+__all__ = ['NextHop', 'InterfaceInfo', 'get_interface_info', 'get_routes']
 
 class NextHop(object):
     def __init__(self, network, interface, ipaddr):

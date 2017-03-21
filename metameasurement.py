@@ -3,18 +3,20 @@ import re
 import os
 import asyncio
 import signal
-from time import time
+from time import time, strftime, gmtime
 import functools
 from ipaddress import IPv4Network
 from collections import defaultdict
 import logging
 from statistics import mean, stdev
+import argparse
+import subprocess
+import json
 
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
-
-from localnet import get_interface_info, get_routes
-from sysobservers import SystemObserver, TopCommandParser, IostatCommandParser, NetstatIfaceStatsCommandParser, ResultsContainer
+from localnet import *
+from sysobservers import *
 
 def _create_decoder():
     _dlt_to_decoder = {}
@@ -32,7 +34,7 @@ def _create_decoder():
 decode_packet = _create_decoder()
 
 class MeasurementObserver(object):
-    def __init__(self, debug):
+    def __init__(self, debug, fileprefix):
         self._asyncloop = asyncio.SelectorEventLoop()
         asyncio.set_event_loop(self._asyncloop)
         self._asyncloop.add_signal_handler(signal.SIGINT, self._sig_catcher)
@@ -49,6 +51,10 @@ class MeasurementObserver(object):
         self._mon_interval = 1.0
         self._done = False
         self._icmpseq = 1
+        self._warmcooltime = 2
+        self._fileprefix = fileprefix
+        self._toolproc = None
+
         logging.basicConfig(format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
 
         if self._debug:
@@ -70,20 +76,56 @@ class MeasurementObserver(object):
 
     def _cleanup(self):
         # close pcap devices
+        self._pcapstats = {}
         for ifname,pcapdev in self._ports.items():
-            self._log.info("Closing {}: {}".format(ifname, pcapdev.stats()))
+            s = pcapdev.stats()
+            self._pcapstats[ifname] = {'recv':s.ps_recv,
+                'pcapdrop':s.ps_drop, 'ifdrop':s.ps_ifdrop}
+            self._log.info("Closing {}: {}".format(ifname, s))
             pcapdev.close()
         self._asyncloop.stop()
+
+    def _write_meta(self, commandline): 
+        proc = subprocess.run("uname -a", shell=True, 
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        metadict = {}
+        metadict['start'] = self._starttime
+        metadict['end'] = self._endtime
+        metadict['os'] = proc.stdout
+        metadict['command'] = commandline
+        try:
+            metadict['commandoutput'] = self._toolfut.result()
+            self._log.info("Command output: {}".format(self._toolfut.result()))
+        except:
+            metadict['commandoutput'] = "Error: command did not start and/or complete"
+            self._log.info("Error: command did not start and/or complete.")
+
+        metadict['interface_info'] = self._pcapstats
+
+        metadict['monitors'] = {}
         for k,m in self._monitors.items():
+            metadict['monitors'][k] = m.results.all()
             self._log.info("Monitor summary {}: {}".format(k, m.results.summary(mean)))
+        metadict['localnet'] = {} 
+        metadict['localnet']['hops_monitored'] = 1 # FIXME -> generalize this
+        metadict['localnet']['icmpresults'] = self._monfut.result()
+        self._log.info("Local network performance summary: {}".format(self._monfut.result()))
+
+        timestr = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
+        filename = "{}_{}.json".format(self._fileprefix, timestr)
+        if self._debug:
+            print("Metadata to write:", metadict)
+        else:
+            with open(filename, 'w') as outfile:
+                json.dump(metadict, outfile)
 
     def _shutdown(self, future):
         self._log.debug("tool done; shutting down")
         if future:
             self._log.debug("result: {}".format(future.result()))
-        self._asyncloop.call_soon(self._cleanup)
+        self._asyncloop.call_later(self._warmcooltime, self._cleanup)
         self._done = True
-        if self._toolproc.returncode is None:
+        if self._toolproc and self._toolproc.returncode is None:
             self._toolproc.terminate()
         for m in self._monitors.values():
             m.stop()
@@ -135,14 +177,20 @@ class MeasurementObserver(object):
     async def _run_tool(self, commandline, future):
         create = asyncio.create_subprocess_shell(commandline, 
                                                  stdout=asyncio.subprocess.PIPE,
-                                                 stderr=asyncio.subprocess.STDOUT)
-        self._toolproc = await create
-        print("process id {} started".format(self._toolproc.pid))
-        output = await self._toolproc.communicate() # assumes that data to read is not too large
-        print("process output: {}".format(output))
-        print("process returnval: {}".format(self._toolproc.returncode))
+                                                 stderr=asyncio.subprocess.PIPE)
+        try:
+            self._toolproc = await create
+        except asyncio.CancelledError:
+            return
+        self._log.debug("Measurement tool started with pid {}".format(self._toolproc.pid))
+        try:
+            output = await self._toolproc.communicate() # assumes that data to read is not too large
+        except asyncio.CancelledError:
+            return
         if not future.cancelled():
-            future.set_result(self._toolproc.returncode)
+            future.set_result({'returncode': self._toolproc.returncode,
+                               'stdout': output[0].decode('utf8'),
+                               'stderr': output[1].decode('utf8')})
 
     def _send_packet(self, intf, pkt):
         assert(intf in self._ports)
@@ -159,18 +207,22 @@ class MeasurementObserver(object):
         fareth = "00:00:00:00:00:00"
         self._send_packet(ifinfo.name, arpreq)
         while True:
-            ethaddr,ipaddr = await self._arp_queue.get()
+            try:
+                ethaddr,ipaddr = await self._arp_queue.get()
+            except asyncio.CancelledError:
+                break
             self._arp_cache[ipaddr] = ethaddr
             if ipaddr == dst:
                 break
+
         return ethaddr
 
     async def _ping(self, dst):
-        #self._log.debug("send ping to {}".format(dst))
         nh = self._routes[dst]
-        #self._log.debug("ARPing for next hop: {}".format(nh))
-        ethaddr = await self._do_arp(nh.nexthop, nh.interface)
-        #self._log.debug("Got ethaddr for nh: {}".format(ethaddr))
+        try:
+            ethaddr = await self._do_arp(nh.nexthop, nh.interface)
+        except asyncio.CancelledError:
+            return
         thisintf = self._ifinfo[nh.interface]
         self._icmpident = self._pid%65535
         pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
@@ -186,35 +238,47 @@ class MeasurementObserver(object):
         self._send_packet(nh.interface, pkt)
 
     async def _ping_collector(self, fut):
-        seqhash = {ICMPType.EchoRequest: {},
-                   ICMPType.TimeExceeded: {} }
+        A = ICMPType.EchoRequest
+        B = ICMPType.TimeExceeded
+        seqhash = {A: {}, B: {}}
         r = ResultsContainer()
+
         while not self._done:
             try:
                 ts,seq,src,pkt = await self._icmp_queue.get()
-            except:
+            except asyncio.CancelledError:
                 break
             xhash = seqhash[pkt[ICMP].icmptype]
             xhash[seq] = ts
+            if seq in seqhash[A] and seq in seqhash[B]:
+                rtt = seqhash[B].pop(seq) - seqhash[A].pop(seq)
+                r.add_result({'icmprtt':rtt,'seq':seq})
 
-        echo = seqhash[ICMPType.EchoRequest]
-        exc = seqhash[ICMPType.TimeExceeded]
+
+        echo = seqhash[A]
+        exc = seqhash[B]
 
         for seq in sorted(echo.keys()):
             if seq in exc:
                 rtt = exc[seq] - echo[seq]
-                r.add_result({'icmprtt':rtt,'seq':seq})
+            else:
+                rtt = float('inf')
+            r.add_result({'icmprtt':rtt,'seq':seq})
 
-        print(r.summary(mean))
-        fut.set_result(r.summary(mean))
+        self._log.debug("icmpsummary: {}".format(r.summary(mean)))
+        fut.set_result(r.all())
 
     async def _monitor_first_n_hops(self, future):
         asyncio.ensure_future(self._ping_collector(self._monfut))
         while not self._done:
-            t = await self._ping('149.43.80.25')
-
-            await asyncio.sleep(self._mon_interval)
-
+            try:
+                t = await self._ping('149.43.80.25')
+            except asyncio.CancelledError:
+                break
+            try:
+                await asyncio.sleep(self._mon_interval)
+            except asyncio.CancelledError:
+                break
             cpuidle = float(self._monitors['cpu'].results.compute_stat(mean, 'cpuidle', 2))
             if cpuidle < 10:
                 self._mon_interval *= 2.0
@@ -224,47 +288,66 @@ class MeasurementObserver(object):
             for m in self._monitors.values():
                 m.set_interval(self._mon_interval)
 
+    def _start_tool(self, cmdline):
+        asyncio.ensure_future(self._run_tool(cmdline, self._toolfut))
+        self._toolfut.add_done_callback(self._shutdown)
+        
     def run(self, commandline):
+        self._starttime = time()
+        self._log.info("Starting metadata measurement with verbose {} and commandline <{}>".format(
+            self._debug, commandline))
+
         self._ifinfo = get_interface_info(self._ports.keys())
         self._routes = get_routes(self._ifinfo)
 
-        for intf in self._ifinfo:
-            print("{} -> {}".format(intf, self._ifinfo[intf]))
-        for prefix in self._routes:
-            print("{} -> {}".format(prefix, self._routes[prefix]))
-
-        # self._prepost_profile()
+        # debugging: dump out all interface and route info
+        # for intf in self._ifinfo:
+        #     print("{} -> {}".format(intf, self._ifinfo[intf]))
+        # for prefix in self._routes:
+        #     print("{} -> {}".format(prefix, self._routes[prefix]))
 
         self._monfut = asyncio.Future()
         xfut = asyncio.Future()
         asyncio.ensure_future(self._monitor_first_n_hops(xfut))
 
         self._toolfut = asyncio.Future()
-        asyncio.ensure_future(self._run_tool(commandline, self._toolfut))
-        self._toolfut.add_done_callback(self._shutdown)
-        
-        # l = asyncio.get_event_loop()
-        # t = l.time()
-        # l.call_later(relsec)
-        # l.call_at(abssec)
+        self._cmdstart = self._asyncloop.call_later(self._warmcooltime, 
+            self._start_tool, commandline)
 
         try:
             self._asyncloop.run_forever()
         finally:
             self._asyncloop.close()
 
-        #if not self._monfut.cancelled():
-        #    self._log.info('monfuture result: {!r}'.format(self._monfut.result()))
+        # if not self._toolfut.cancelled():
+        #     print("Tool future: {}".format(self._toolfut.result()))
+        # if not self._monfut.cancelled():
+        #     print("Mon future: {}".format(self._monfut.result()))
+
+        self._endtime = time()
+        self._write_meta(commandline)
 
 
 def main():
-    m = MeasurementObserver(True)
+    parser = argparse.ArgumentParser(
+            description='Automatic generation of active measurement metadata')
+    parser.add_argument('-d', '-v', '--verbose', '--debug', 
+                        dest='verbose', action='store_true', default=True,
+                        help='Turn on verbose/debug output.')
+    parser.add_argument('-f', '--fileprefix', dest='fileprefix', type=str, default='metadata',
+                        help='Prefix for filename that includes metadata for a given run.')
+    parser.add_argument('-c', '--command', dest='commandline', type=str, default='sleep 5',
+                        help='The full command line for running an active measurement tool'
+                             ' (note that the command line almost certainly needs to be quoted)')
+    args = parser.parse_args()
+
+    m = MeasurementObserver(args.verbose, args.fileprefix)
     m.add_port('en0', 'icmp or arp')
     m.add_monitor('cpu', SystemObserver(TopCommandParser))
     m.add_monitor('io', SystemObserver(IostatCommandParser))
     m.add_monitor('netstat', SystemObserver(NetstatIfaceStatsCommandParser))
     commandline = "sleep 5"
-    m.run(commandline)
+    m.run(args.commandline)
 
 if __name__ == '__main__':
     main()
