@@ -1,11 +1,10 @@
 from abc import abstractmethod
-# from subprocess import Popen, PIPE, STDOUT, run
 import asyncio
 from time import sleep, time
 import re
+import signal
 
 from switchyard.lib.userlib import *
-
 
 class ObservationParser(object):
     '''
@@ -76,55 +75,118 @@ class NetstatIfaceStatsCommandParser(ObservationParser):
         return dict(zip(keys, map(int, s.split()[4:])))
 
 
+class ResultsContainer(object):
+    def __init__(self):
+        self._results = [] # list of tuples: (time, {observation dict})
+
+    def add_result(self, d):
+        now = time()
+        self._results.append( (now, d) )
+
+    def last_result(self, key):
+        if not self._results:
+            return None
+        return self._results[-1][1][key]
+
+    def compute_stat(self, fn, key, lastn=0):
+        if not self._results:
+            return None
+        return fn([ t[1][key] for t in self._results[-lastn:] ])
+
+    def summary(self, fn):
+        if not self._results:
+            return None
+        klist = list(self._results[0][1].keys())
+        vlist = [ self.compute_stat(fn, k) for k in klist ]
+        return dict(zip(klist,vlist))
+
+    def __str__(self):
+        return str(self.summary())
+
+    def __repr__(self):
+        return repr(self.summary())
+
+
 class SystemObserver(object):
-    def __init__(self, parser):
-        self._results = []
+    def __init__(self, parser, interval=1.0):
         self._parser = parser
+        self._results = ResultsContainer()
+        self._done = False
+        self._interval = interval
 
     async def __call__(self):
-        now = time()
-        #completed_proc = run(self._parser.command, shell=True, 
-        #    universal_newlines=True, stdout=PIPE, stderr=STDOUT)
-        create = asyncio.create_subprocess_shell(self._parser.command, 
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT)
-        proc = await create
-        stdout,stderr = await proc.communicate()
-        stdout = stdout.decode('utf8')
+        while True:
+            create = asyncio.create_subprocess_shell(self._parser.command, 
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT)
+            proc = await create
+            stdout,stderr = await proc.communicate()
+            stdout = stdout.decode('utf8')
 
-        if proc.returncode==0:
-            self._results.append( (now, self._parser.parse(stdout)) )
-        else:
-            self._results.append( (now, {'error':stdout}) )
+            if proc.returncode==0:
+                self._results.add_result(self._parser.parse(stdout))
+            else:
+                self._results.add_result({'error':stdout})
 
+            if self._done:
+                break
+
+            if asyncio.Task.current_task().cancelled():
+                break
+            await asyncio.sleep(self._interval)
+
+    def stop(self):
+        self._done = True
+
+    def set_interval(self, i):
+        self._interval = i
+
+    @property
     def results(self):
         return self._results
 
+#class LsofCommandParser(ObservationParser):
         #lsof1 = "lsof -S 3 -n -p {}"
         #lsof2 = "lsof -S 3 -n -i UDP -i TCP"
         #lsof3 = "lsof -S 3 -n | grep ICMP"
         # vm_stat
         # vmmap (root required)
 
+def sig_catch(*args):
+    asyncio.get_event_loop().stop()
+
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGINT, sig_catch)
 
     x = SystemObserver(TopCommandParser)
-    asyncio.ensure_future(x())
+    f = asyncio.ensure_future(x())
 
-    y = SystemObserver(IostatCommandParser)
-    asyncio.ensure_future(y())
-
-    z = SystemObserver(NetstatIfaceStatsCommandParser('en0'))
-    asyncio.ensure_future(z())
+    #y = SystemObserver(IostatCommandParser)
+    #asyncio.ensure_future(y())
+#
+#    z = SystemObserver(NetstatIfaceStatsCommandParser('en0'))
+#    asyncio.ensure_future(z())
 
     try:
         loop.run_forever()
     except:
         pass
     finally:
+        print("here we are...")
+        x.stop()
+        f.cancel()
+        # asyncio.get_event_loop().run_until_complete(f)
+        asyncio.wait_for(f, 1.0)
         loop.close()
 
-    print(x.results())
-    print(y.results())
-    print(z.results())
+    from statistics import mean, stdev, median, variance
+
+    print(x.results)
+    print(x.results.last_result('cpuidle'))
+    print(x.results.compute_stat(mean, 'cpuidle', 2))
+    print(x.results.compute_stat(mean, 'cpuidle'))
+    print(x.results.compute_stat(median, 'cpuidle'))
+
+    #print(y.results())
+    #print(z.results())
