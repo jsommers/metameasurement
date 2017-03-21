@@ -103,6 +103,13 @@ class ResultsContainer(object):
         vlist = [ self.compute_stat(fn, k) for k in klist ]
         return dict(zip(klist,vlist))
 
+    def timeseries(self, key):
+        if not self._results:
+            return None
+        ts = [ t[0] for t in self._results ]
+        val = [ t[1][key] for t in self._results ]
+        return (ts, val)
+
     def __str__(self):
         return str(self.summary(mean))
 
