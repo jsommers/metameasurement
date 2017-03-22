@@ -4,7 +4,8 @@ Try it out
 
 Requires Python 3.6.
 
-::
+A basic recipe for running::
+
     # install a python venv and required modules
     python3 -m venv xenv
     source xenv/bin/activate
