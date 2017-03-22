@@ -12,6 +12,7 @@ from statistics import mean, stdev
 import argparse
 import subprocess
 import json
+import random
 
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
@@ -343,10 +344,10 @@ def main():
 
     m = MeasurementObserver(args.verbose, args.fileprefix)
     m.add_port('en0', 'icmp or arp')
-    m.add_monitor('cpu', SystemObserver(CPUDataSource(), 1))
-    m.add_monitor('io', SystemObserver(IODataSource(), 3))
-    m.add_monitor('netstat', SystemObserver(NetIfDataSource('en0'), 1))
-    m.add_monitor('mem', SystemObserver(MemoryDataSource(), 3))
+    m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(1.0,1.0)))
+    m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0)))
+    m.add_monitor('netstat', SystemObserver(NetIfDataSource('en0'), lambda: random.uniform(1.0,1.0)))
+    m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0,2.0)))
     commandline = "sleep 5"
     m.run(args.commandline)
 

@@ -6,6 +6,7 @@ import signal
 from psutil import cpu_times_percent, disk_io_counters, \
     net_io_counters, virtual_memory
 from numpy import min_scalar_type, iinfo
+import random
 
 __all__ = ['CPUDataSource', 'IODataSource', 'NetIfDataSource', 
     'MemoryDataSource', 'SystemObserver', 'ResultsContainer']
@@ -163,11 +164,12 @@ class ResultsContainer(object):
 
 
 class SystemObserver(object):
-    def __init__(self, datasource, interval=1.0, dropfirst=True):
+    def __init__(self, datasource, intervalfn, dropfirst=True):
         self._source = datasource
         self._results = ResultsContainer()
         self._done = False
-        self._interval = interval
+        assert(callable(intervalfn))
+        self._intervalfn = intervalfn
         self._dropfirst = dropfirst # for psutil data, best to drop the first measurement
 
     async def __call__(self):
@@ -180,7 +182,7 @@ class SystemObserver(object):
                 break
 
             try:
-                await asyncio.sleep(self._interval)
+                await asyncio.sleep(self._intervalfn())
             except asyncio.CancelledError:
                 break
 
@@ -190,8 +192,9 @@ class SystemObserver(object):
     def stop(self):
         self._done = True
 
-    def set_interval(self, i):
-        self._interval = i
+    def set_intervalfn(self, fn):
+        assert(callable(fn))
+        self._intervalfn = fn
 
     @property
     def results(self):
@@ -210,16 +213,16 @@ if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGINT, sig_catch)
 
-    cpu = SystemObserver(CPUDataSource())
+    cpu = SystemObserver(CPUDataSource(), lambda: random.expovariate(1.0))
     f1 = asyncio.ensure_future(cpu())
 
-    io = SystemObserver(IODataSource())
+    io = SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0))
     f2 = asyncio.ensure_future(io())
 
-    net = SystemObserver(NetIfDataSource('en0'))
+    net = SystemObserver(NetIfDataSource('en0'), lambda: random.uniform(2.0, 2.0))
     f3 = asyncio.ensure_future(net())
 
-    mem = SystemObserver(MemoryDataSource())
+    mem = SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0, 2.0))
     f4 = asyncio.ensure_future(mem())
 
     try:
