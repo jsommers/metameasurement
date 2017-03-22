@@ -18,5 +18,8 @@ Requires Python 3.6.
     # plot stuff
     python3 plotmeta.py -i localnet:icmpresults:icmprtt -i monitors:cpu:idle <json file produced by previous step>
 
+    # see what metadata can be plotted
+    python3 plotmeta <json file produced by previous step>
+
     # use a different external measurement tool
     python3 metameasurement.py -c "ping -c 100 www.google.com" 
