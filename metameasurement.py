@@ -115,32 +115,6 @@ class MeasurementObserver(object):
         timestr = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
         filebase = "{}_{}".format(self._fileprefix, timestr)
 
-        # FIXME: this should be factored out 
-        self._plotit = True
-        if self._plotit:
-            ts1,delay = self._icmpresults.timeseries('icmprtt')
-            ts2,cpuidle = self._monitors['cpu'].results.timeseries('idle')
-
-            fig,rttax = plt.subplots()
-            fig.subplots_adjust(right=0.75)
-            cpuax = rttax.twinx()
-
-            p1, = rttax.plot(ts1, delay, "b-", label="RTT to first hop")
-            p2, = cpuax.plot(ts2, cpuidle, "r-", label="CPU idle")
-
-            rttax.set_xlabel("Time (sec)")
-            rttax.set_ylabel("RTT (sec)")
-            cpuax.set_ylabel("Idle CPU (%)")
-
-            rttax.set_ylim(0, round(max(delay) * 1.25, 3))
-            cpuax.set_ylim(0, 100)
-
-            rttax.yaxis.label.set_color(p1.get_color())
-            cpuax.yaxis.label.set_color(p2.get_color())
-
-            rttax.legend([p1,p2], [p.get_label() for p in [p1,p2]])
-            plt.savefig("{}.png".format(filebase))
-
         if self._debug:
             print("Metadata to write:", metadict)
         else:
