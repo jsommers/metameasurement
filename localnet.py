@@ -12,6 +12,9 @@ from switchyard.lib.address import *
 
 __all__ = ['NextHop', 'InterfaceInfo', 'get_interface_info', 'get_routes']
 
+# FIXME: refactor to use psutil.net_if_addrs, since it is better tested to handle
+# various OSes
+
 class NextHop(object):
     def __init__(self, network, interface, ipaddr):
         self._network = network

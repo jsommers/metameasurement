@@ -13,8 +13,6 @@ import argparse
 import subprocess
 import json
 
-import matplotlib.pyplot as plt
-
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
 from localnet import *
@@ -312,14 +310,9 @@ class MeasurementObserver(object):
                 break
             cpuidle = float(self._monitors['cpu'].results.compute(mean, 'idle', 2))
             self._log.info("Current idle cpu {}".format(cpuidle))
-            
-            # if cpuidle < 30:
-            #     self._mon_interval *= 2.0
-            # elif cpuidle > 70:
-            #     self._mon_interval /= 2.0
 
-            # for m in self._monitors.values():
-            #     m.set_interval(self._mon_interval)
+            # FIXME: modification of monitor interval?
+
 
     def _start_tool(self, cmdline):
         asyncio.ensure_future(self._run_tool(cmdline, self._toolfut))
