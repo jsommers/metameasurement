@@ -1,2 +1,4 @@
 xenv
 __pycache__
+*.json
+*.png
