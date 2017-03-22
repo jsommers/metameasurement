@@ -3,79 +3,118 @@ import asyncio
 from time import sleep, time
 import re
 import signal
+from psutil import cpu_times_percent, disk_io_counters, \
+    net_io_counters, virtual_memory
+from numpy import min_scalar_type, iinfo
 
-from switchyard.lib.userlib import *
+__all__ = ['CPUDataSource', 'IODataSource', 'NetIfDataSource', 
+    'MemoryDataSource', 'SystemObserver', 'ResultsContainer']
 
-__all__ = ['TopCommandParser', 'IostatCommandParser', 'NetstatIfaceStatsCommandParser', 
-    'SystemObserver', 'ResultsContainer']
 
-class ObservationParser(object):
+def _compute_diff_with_wrap(curr, last):
     '''
-    A command + parser for some system tool from which host performance
-    measures can be gathered, e.g., lsof, iostat, top, uptime, etc.
-    In addition to defining a parse function, should define a class-level
-    command attribute with the command to execute.  The command should be
-    one that can be passed directly to the shell for execution.
+    Correctly handle computing differences on counters that have
+    overflowed.
     '''
+    diff = curr - last
+    if diff >= 0:
+        return diff
+    dtype = min_scalar_type(last)
+    dtypemax = iinfo(dtype).max
+    return curr + (dtypemax - last)
 
-    @staticmethod
+
+class DataSource(object):
+    '''
+    A data source for some system tool from which host performance
+    measures can be gathered, e.g., cpu, ioperf, net, memory, etc.
+    It simply must define a __call__ method that returns a dictionary
+    containing a data observation.
+    '''
     @abstractmethod
-    def parse(completed_process):
+    def __call__(self):
         '''
-        Takes a completed_process argument (see subprocess library
-        documentation).
-
         Should return a dictionary with keyword:value observations.
         '''
         raise NotImplementedError()
 
 
-class TopCommandParser(ObservationParser):
-    command = 'top -l1|head -4|tail -2'
-    _loadre = re.compile('Load Avg:\s*([\.\d]+),\s*([\.\d]+),\s*([\.\d]+)')
-    _cpure = re.compile('CPU usage:\s*([\.\d]+)%\s*user,\s+([\.\d]+)%\s*sys,\s+([\.\d]+)%\s*idle')
-    _keys = ('load1min','load5min','load15min','cpuuser','cpusys','cpuidle')
+class CPUDataSource(DataSource):
+    '''
+    Monitor CPU usage (via psutil module)
+    '''
+    def __init__(self):
+        x = cpu_times_percent() # as per psutil docs: first call will give rubbish 
+        self._keys = [ a for a in dir(x) if not a.startswith('_') and \
+            not callable(getattr(x,a)) ]
 
-    @staticmethod
-    def parse(output):
-        loadm = TopCommandParser._loadre.search(output)
-        loadvals = tuple(map(float, loadm.groups()))
-        cpum = TopCommandParser._cpure.search(output)
-        cpuvals = tuple(map(float, cpum.groups()))
-        return dict(zip(TopCommandParser._keys, loadvals+cpuvals))
+    def __call__(self):
+        sample = cpu_times_percent()
+        return { k:getattr(sample,k) for k in self._keys }
 
 
-class IostatCommandParser(ObservationParser):
-    command = "iostat -d -K"
-    _keys = ('KB/t','tps','MB/s')
+class IODataSource(DataSource):
+    '''
+    Monitor disk IO counters via psutil.  The psutil call just yields the current
+    counter values; internally we keep last sample and only store differences.
+    '''
+    def __init__(self):
+        x = self._lastsample = disk_io_counters(perdisk=True) # as per psutil docs: first call will give rubbish 
+        self._disks = x.keys()
+        d1 = list(self._disks)[0]
+        self._keys = [ a for a in dir(x[d1]) if not a.startswith('_') and \
+            not callable(getattr(x[d1],a)) ]
 
-    @staticmethod
-    def parse(output):
-        # first line shows name of each device
-        # second line shows headers for each device
-        # third line are device stats
-        s = output.split('\n')
-        devices = s[0].split()
-        stats = map(float, s[2].split())
-        keys = ['_'.join((d,sk)) for sk in IostatCommandParser._keys \
-            for d in devices ]
-        return dict(zip(keys, stats))
+    def __call__(self):
+        sample = disk_io_counters(perdisk=True)
+        rd = {
+          '_'.join((d,k)):_compute_diff_with_wrap(getattr(sample[d], k), \
+                                     getattr(self._lastsample[d], k)) \
+                    for k in self._keys for d in self._disks 
+        }
+        self._lastsample = sample
+        return rd
 
-class NetstatIfaceStatsCommandParser(ObservationParser):
-    command = "netstat -I {} -d"
-    _keys = ('ipkts','ierrs','opkts','oerrs','coll','drop')
-    _iface = ''
 
-    def __init__(self, iface):
-        NetstatIfaceStatsCommandParser._iface = iface
-        NetstatIfaceStatsCommandParser.command = \
-            NetstatIfaceStatsCommandParser.command.format(iface)
+class NetIfDataSource(DataSource):
+    '''
+    Monitor network interface counters.  Can be constructed with one or more names
+    (strings) of network interfaces, or nothing to monitor all interfaces.  The psutil
+    call just yields current counter values; internally we keep last sample and only
+    store differences.
+    '''
+    def __init__(self, *nics_of_interest):
+        x = self._lastsample = net_io_counters(pernic=True) # as per psutil docs: first call will give rubbish 
+        if not nics_of_interest:
+            self._nics = x.keys()
+        else:
+            self._nics = [ n for n in x.keys() if n in nics_of_interest ]
+        d1 = list(self._nics)[0]
+        self._keys = [ a for a in dir(x[d1]) if not a.startswith('_') and \
+            not callable(getattr(x[d1],a)) ]
 
-    @staticmethod
-    def parse(output):
-        s = output.split('\n')[1]
-        keys = [ '_'.join((NetstatIfaceStatsCommandParser._iface, k)) for k in NetstatIfaceStatsCommandParser._keys ]
-        return dict(zip(keys, map(int, s.split()[4:])))
+    def __call__(self):
+        sample = net_io_counters(pernic=True)
+        rd = {
+          '_'.join((n,k)):_compute_diff_with_wrap(getattr(sample[n], k), \
+                                     getattr(self._lastsample[n], k)) \
+                    for k in self._keys for n in self._nics
+        }
+        return rd
+
+
+class MemoryDataSource(DataSource):
+    '''
+    Monitor memory usage via psutil.
+    '''
+    def __init__(self):
+        x = virtual_memory() # as per psutil docs: first call will give rubbish 
+        self._keys = [ a for a in dir(x) if not a.startswith('_') and \
+            not callable(getattr(x,a)) ]
+
+    def __call__(self):
+        sample = virtual_memory()
+        return dict([ (k,getattr(sample,k)) for k in self._keys ]) 
 
 
 class ResultsContainer(object):
@@ -91,7 +130,7 @@ class ResultsContainer(object):
             return None
         return self._results[-1][1][key]
 
-    def compute_stat(self, fn, key, lastn=0):
+    def compute(self, fn, key, lastn=0):
         if not self._results:
             return None
         return fn([ t[1][key] for t in self._results[-lastn:] ])
@@ -100,7 +139,7 @@ class ResultsContainer(object):
         if not self._results:
             return None
         klist = list(self._results[0][1].keys())
-        vlist = [ self.compute_stat(fn, k) for k in klist ]
+        vlist = [ self.compute(fn, k) for k in klist ]
         return dict(zip(klist,vlist))
 
     def timeseries(self, key):
@@ -119,43 +158,34 @@ class ResultsContainer(object):
     def all(self):
         return self._results
 
+    def drop_first(self):
+        self._results.pop(0)
+
 
 class SystemObserver(object):
-    def __init__(self, parser, interval=1.0):
-        self._parser = parser
+    def __init__(self, datasource, interval=1.0, dropfirst=True):
+        self._source = datasource
         self._results = ResultsContainer()
         self._done = False
         self._interval = interval
+        self._dropfirst = dropfirst # for psutil data, best to drop the first measurement
 
     async def __call__(self):
         while True:
-            create = asyncio.create_subprocess_shell(self._parser.command, 
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT)
-            try:
-                proc = await create
-            except asyncio.CancelledError:
-                break
-            try:
-                stdout,stderr = await proc.communicate()
-            except asyncio.CancelledError:
-                break
-            stdout = stdout.decode('utf8')
+            sample = self._source()
+            self._results.add_result(sample)
 
-            if proc.returncode==0:
-                self._results.add_result(self._parser.parse(stdout))
-            else:
-                self._results.add_result({'error':stdout})
-
-            if self._done:
+            if self._done or \
+                asyncio.Task.current_task().cancelled():
                 break
 
-            if asyncio.Task.current_task().cancelled():
-                break
             try:
                 await asyncio.sleep(self._interval)
             except asyncio.CancelledError:
                 break
+
+        if self._dropfirst:
+            self._results.drop_first()
 
     def stop(self):
         self._done = True
@@ -167,44 +197,43 @@ class SystemObserver(object):
     def results(self):
         return self._results
 
-#class LsofCommandParser(ObservationParser):
-        #lsof1 = "lsof -S 3 -n -p {}"
-        #lsof2 = "lsof -S 3 -n -i UDP -i TCP"
-        #lsof3 = "lsof -S 3 -n | grep ICMP"
-        # vm_stat
-        # vmmap (root required)
 
 def sig_catch(*args):
+    for t in asyncio.Task.all_tasks():
+        t.cancel()
+    asyncio.get_event_loop().call_later(0.5, stop_world)
+
+def stop_world():
     asyncio.get_event_loop().stop()
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGINT, sig_catch)
 
-    #x = SystemObserver(TopCommandParser)
-    #f = asyncio.ensure_future(x())
+    cpu = SystemObserver(CPUDataSource())
+    f1 = asyncio.ensure_future(cpu())
 
-    #y = SystemObserver(IostatCommandParser)
-    #f = asyncio.ensure_future(y())
+    io = SystemObserver(IODataSource())
+    f2 = asyncio.ensure_future(io())
 
-    z = SystemObserver(NetstatIfaceStatsCommandParser('en0'))
-    f = asyncio.ensure_future(z())
+    net = SystemObserver(NetIfDataSource('en0'))
+    f3 = asyncio.ensure_future(net())
+
+    mem = SystemObserver(MemoryDataSource())
+    f4 = asyncio.ensure_future(mem())
 
     try:
         loop.run_forever()
     except:
         pass
     finally:
-        print("here we are...")
-        f.cancel()
         loop.close()
 
     from statistics import mean, stdev, median, variance
 
-    #print(x.results)
-    #print(x.results.last_result('cpuidle'))
-    #print(x.results.compute_stat(mean, 'cpuidle', 2))
-    #print(x.results.compute_stat(mean, 'cpuidle'))
-    #print(x.results.compute_stat(median, 'cpuidle'))
-
-    print(z.results.all())
+    print(cpu.results.all())
+    print(io.results.all())
+    print(net.results.all())
+    print(mem.results.summary(max))
+    print(net.results.compute(max, 'en0_dropin'))
+    print(mem.results.compute(mean, 'percent'))

@@ -13,6 +13,8 @@ import argparse
 import subprocess
 import json
 
+import matplotlib.pyplot as plt
+
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
 from localnet import *
@@ -113,11 +115,38 @@ class MeasurementObserver(object):
         self._log.info("Local network performance summary: {}".format(self._monfut.result()))
 
         timestr = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
-        filename = "{}_{}.json".format(self._fileprefix, timestr)
+        filebase = "{}_{}".format(self._fileprefix, timestr)
+
+        # FIXME: this should be factored out 
+        self._plotit = True
+        if self._plotit:
+            ts1,delay = self._icmpresults.timeseries('icmprtt')
+            ts2,cpuidle = self._monitors['cpu'].results.timeseries('idle')
+
+            fig,rttax = plt.subplots()
+            fig.subplots_adjust(right=0.75)
+            cpuax = rttax.twinx()
+
+            p1, = rttax.plot(ts1, delay, "b-", label="RTT to first hop")
+            p2, = cpuax.plot(ts2, cpuidle, "r-", label="CPU idle")
+
+            rttax.set_xlabel("Time (sec)")
+            rttax.set_ylabel("RTT (sec)")
+            cpuax.set_ylabel("Idle CPU (%)")
+
+            rttax.set_ylim(0, round(max(delay) * 1.25, 3))
+            cpuax.set_ylim(0, 100)
+
+            rttax.yaxis.label.set_color(p1.get_color())
+            cpuax.yaxis.label.set_color(p2.get_color())
+
+            rttax.legend([p1,p2], [p.get_label() for p in [p1,p2]])
+            plt.savefig("{}.png".format(filebase))
+
         if self._debug:
             print("Metadata to write:", metadict)
         else:
-            with open(filename, 'w') as outfile:
+            with open("{}.json".format(filebase), 'w') as outfile:
                 json.dump(metadict, outfile)
 
     def _shutdown(self, future):
@@ -242,7 +271,7 @@ class MeasurementObserver(object):
         A = ICMPType.EchoRequest
         B = ICMPType.TimeExceeded
         seqhash = {A: {}, B: {}}
-        r = ResultsContainer()
+        r = self._icmpresults = ResultsContainer()
 
         while not self._done:
             try:
@@ -273,6 +302,7 @@ class MeasurementObserver(object):
         asyncio.ensure_future(self._ping_collector(self._monfut))
         while not self._done:
             try:
+                # direct echo requests toward Google public DNS anycast 
                 t = await self._ping('8.8.8.8')
             except asyncio.CancelledError:
                 break
@@ -280,15 +310,16 @@ class MeasurementObserver(object):
                 await asyncio.sleep(self._mon_interval)
             except asyncio.CancelledError:
                 break
-            cpuidle = float(self._monitors['cpu'].results.compute_stat(mean, 'cpuidle', 2))
+            cpuidle = float(self._monitors['cpu'].results.compute(mean, 'idle', 2))
             self._log.info("Current idle cpu {}".format(cpuidle))
-            if cpuidle < 10:
-                self._mon_interval *= 2.0
-            elif cpuidle > 80:
-                self._mon_interval /= 2.0
+            
+            # if cpuidle < 30:
+            #     self._mon_interval *= 2.0
+            # elif cpuidle > 70:
+            #     self._mon_interval /= 2.0
 
-            for m in self._monitors.values():
-                m.set_interval(self._mon_interval)
+            # for m in self._monitors.values():
+            #     m.set_interval(self._mon_interval)
 
     def _start_tool(self, cmdline):
         asyncio.ensure_future(self._run_tool(cmdline, self._toolfut))
@@ -345,9 +376,10 @@ def main():
 
     m = MeasurementObserver(args.verbose, args.fileprefix)
     m.add_port('en0', 'icmp or arp')
-    m.add_monitor('cpu', SystemObserver(TopCommandParser))
-    m.add_monitor('io', SystemObserver(IostatCommandParser))
-    m.add_monitor('netstat', SystemObserver(NetstatIfaceStatsCommandParser('en0')))
+    m.add_monitor('cpu', SystemObserver(CPUDataSource(), 1))
+    m.add_monitor('io', SystemObserver(IODataSource(), 3))
+    m.add_monitor('netstat', SystemObserver(NetIfDataSource('en0'), 1))
+    m.add_monitor('mem', SystemObserver(MemoryDataSource(), 3))
     commandline = "sleep 5"
     m.run(args.commandline)
 
