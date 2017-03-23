@@ -72,11 +72,8 @@ class MetadataOrchestrator(object):
         timestr = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
         filebase = "{}_{}".format(self._fileprefix, timestr)
 
-        if self._debug:
-            print("Metadata to write:", self._metadict)
-        else:
-            with open("{}.json".format(filebase), 'w') as outfile:
-                json.dump(self._metadict, outfile)
+        with open("{}.json".format(filebase), 'w') as outfile:
+            json.dump(self._metadict, outfile)
 
     def _shutdown(self, future):
         self._log.debug("tool done; shutting down")
@@ -135,6 +132,19 @@ class MetadataOrchestrator(object):
         self._endtime = time()
         self._write_meta(commandline)
 
+def get_gamma_params(probe_rate):
+    '''
+    Get Gamma (Erlang) distribution parameters for 
+    probing.  Accepts probe rate (int) as a parameter
+    (i.e., target probes to emit per second) and returns
+    a tuple to splat into random.gammavariate
+    '''
+    shape = 4 # fixed integral shape 4-16; see SIGCOMM 06 and IMC 07 papers
+    desired_mean = 1/probe_rate
+    desired_scale = shape/desired_mean
+    #print("desired scale",desired_scale)
+    #print("xlambda",1/desired_scale)
+    return shape,1/desired_scale
 
 def main():
     parser = argparse.ArgumentParser(
@@ -154,9 +164,11 @@ def main():
     m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0)))
     m.add_monitor('netstat', SystemObserver(NetIfDataSource('en0'), lambda: random.uniform(1.0,1.0)))
     m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0,2.0)))
+
     rttsrc = ICMPHopLimitedRTTSource()
     rttsrc.add_port('en0', 'icmp or arp')
-    m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.uniform(1,1)))
+    gparms = get_gamma_params(2) # init target rate, 2 probes/sec
+    m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
 
     commandline = "sleep 5"
     m.run(args.commandline)
