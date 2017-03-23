@@ -17,7 +17,7 @@ A basic recipe for running::
     python3 metameasurement.py
 
     # plot stuff
-    python3 plotmeta.py -i localnet:icmpresults:icmprtt -i monitors:cpu:idle <json file produced by previous step>
+    python3 plotmeta.py -i monitors:rtt:icmprtt -i monitors:cpu:idle <json file produced by previous step>
 
     # see what metadata can be plotted
     python3 plotmeta <json file produced by previous step>
