@@ -3,12 +3,15 @@ import re
 from ipaddress import IPv4Network, IPv4Interface
 from collections import defaultdict
 from subprocess import check_output, PIPE, STDOUT, getstatusoutput
+import socket
 
 from pytricia import PyTricia
 
 from switchyard.pcapffi import pcap_devices
 from switchyard.lib.interface import InterfaceType
 from switchyard.lib.address import *
+
+from psutil import net_if_addrs
 
 __all__ = ['NextHop', 'InterfaceInfo', 'get_interface_info', 'get_routes']
 
@@ -73,20 +76,6 @@ def get_interface_info(ifname_list):
         device that we know about, i.e., its MAC address and configured
         IP address and prefix.
         '''
-        # beautiful/ugly regular expressions
-        ethaddr_match = r'([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})'
-        if sys.platform == 'linux':
-            etherpat = re.compile("HWaddr\s+{}".format(ethaddr_match), re.MULTILINE)
-            ip4pat = re.compile(r'inet addr:(?P<ipaddr>\d{1,3}(\.\d{1,3}){3})', re.MULTILINE)
-            ip4maskpat = re.compile(r'Mask:(?P<mask>\d{1,3}(\.\d{1,3}){3})', re.MULTILINE)
-        elif sys.platform == 'darwin':
-            etherpat = re.compile("ether\s+{}".format(ethaddr_match), re.MULTILINE)
-            osxip = r'inet\s+(?P<ipaddr>\d{1,3}(\.\d{1,3}){3})'
-            ip4pat = re.compile(osxip, re.MULTILINE)
-            ip4maskpat = re.compile(r'netmask\s+(?P<mask>0x[0-9a-f]{8})', re.MULTILINE)
-        else:
-            raise NotImplementedError("Unsupported platform {}".format(sys.platform))
-
         if pcapdev.isloop:
             iftype = InterfaceType.Loopback
         else:
@@ -101,25 +90,15 @@ def get_interface_info(ifname_list):
             else:
                 iftype = InterfaceType.Unknown
 
+        ifinfo = net_if_addrs()
         macaddr = ipaddr = mask = None
-        st,output = getstatusoutput("ifconfig {}".format(pcapdev.name))
+        for addrinfo in ifinfo[pcapdev.name]:
+            if addrinfo.family == socket.AddressFamily.AF_INET:
+                ipaddr = IPv4Address(addrinfo.address)
+                mask = IPv4Address(addrinfo.netmask)
+            elif addrinfo.family == socket.AddressFamily.AF_LINK:
+                macaddr = EthAddr(addrinfo.address)
 
-        if isinstance(output, bytes):
-            output = output.decode('ascii','')
-
-        mobj = etherpat.search(output)
-        if mobj:
-            macaddr = EthAddr(mobj.groups()[0])
-        mobj = ip4pat.search(output)
-        if mobj:
-            ipaddr = IPv4Address(mobj.group('ipaddr'))
-        mobj = ip4maskpat.search(output)
-        if mobj:
-            mask = mobj.group('mask')
-            if mask.startswith('0x'):
-                mask = IPv4Address(int(mask, base=16))
-            else:
-                mask = IPv4Address(mask)
         ifnum = socket.if_nametoindex(pcapdev.name)
         return InterfaceInfo(pcapdev.name, macaddr, IPv4Interface("{}/{}".format(ipaddr, mask)), ifnum, iftype)
 
@@ -224,4 +203,3 @@ if __name__ == '__main__':
     for dst in routes:
         ii = routes[dst]
         print("{}: {}".format(dst, ii))
-

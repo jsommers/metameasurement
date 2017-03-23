@@ -3,13 +3,22 @@ import asyncio
 from time import sleep, time
 import re
 import signal
+import logging
+import functools
+import random
+import os
+
 from psutil import cpu_times_percent, disk_io_counters, \
     net_io_counters, virtual_memory
 from numpy import min_scalar_type, iinfo
-import random
+
+from switchyard.lib.userlib import *
+from switchyard import pcapffi
+from localnet import *
 
 __all__ = ['CPUDataSource', 'IODataSource', 'NetIfDataSource', 
-    'MemoryDataSource', 'SystemObserver', 'ResultsContainer']
+    'MemoryDataSource', 'SystemObserver', 'ResultsContainer',
+    'ICMPHopLimitedRTTSource']
 
 
 def _compute_diff_with_wrap(curr, last):
@@ -30,8 +39,12 @@ class DataSource(object):
     A data source for some system tool from which host performance
     measures can be gathered, e.g., cpu, ioperf, net, memory, etc.
     It simply must define a __call__ method that returns a dictionary
-    containing a data observation.
+    containing a data observation *or* calls the internal method
+    _add_result with a data observation dictionary as an argument. 
     '''
+    def __init__(self):
+        self._done = False
+
     @abstractmethod
     def __call__(self):
         '''
@@ -39,12 +52,209 @@ class DataSource(object):
         '''
         raise NotImplementedError()
 
+    def stop(self):
+        self._done = True
+
+    def cleanup(self):
+        pass
+
+    def setup(self, metamaster, resultscontainer):
+        pass
+
+
+def _create_decoder():
+    _dlt_to_decoder = {}
+    _dlt_to_decoder[pcapffi.Dlt.DLT_EN10MB] = lambda raw: Packet(raw, first_header=Ethernet)
+    _dlt_to_decoder[pcapffi.Dlt.DLT_NULL] = lambda raw: Packet(raw, first_header=Null)
+    _null_decoder = lambda raw: RawPacketContents(raw)
+    def decode(dlt, xbytes):
+        try:
+            pkt = _dlt_to_decoder[dlt](xbytes)
+        except: # could be KeyError or failure in pkt reconstruction
+            pkt = _null_decoder(xbytes)
+        return pkt
+    return decode
+
+decode_packet = _create_decoder()
+
+
+class ICMPHopLimitedRTTSource(DataSource):
+    '''
+    Monitor RTTs to some number of hops using ICMP echo requests with low
+    TTLs.  Uses Switchyard libraries to handle packet construction/emission/reception.
+    '''
+    def __init__(self, numhops=1, dest="8.8.8.8"):
+        DataSource.__init__(self)
+        self._dest = dest # by default, direct toward GOOG public DNS anycast
+        self._numhops = numhops
+        self._icmpseq = 1
+        self._arp_cache = {}
+        self._arp_queue = asyncio.Queue()
+        self._icmp_queue = asyncio.Queue()
+        self._ports = {}
+        self._log = logging.getLogger('mm')
+        self._monfut = asyncio.Future()
+        self._ifinfo = self._routes = None
+        self._pid = os.getpid()
+        asyncio.ensure_future(self._ping_collector(self._monfut))
+
+    def add_port(self, ifname, filterstr=''):
+        p = pcapffi.PcapLiveDevice(ifname, filterstr=filterstr)
+        self._ports[ifname] = p
+        asyncio.get_event_loop().add_reader(p.fd, 
+            functools.partial(self._packet_arrival_callback, pcapdev=p))
+
+    def __call__(self):
+        asyncio.ensure_future(self._emiticmp(self._dest))            
+
+    def _packet_arrival_callback(self, pcapdev=None):
+        while True:
+            p = pcapdev.recv_packet_or_none()
+            if p is None:
+                break
+
+            name = pcapdev.name
+            pkt = decode_packet(pcapdev.dlt, p.raw)
+            ts = p.timestamp
+            ptup = (name,ts,pkt)
+
+            if pkt.has_header(Arp) and \
+              pkt[Arp].operation == ArpOperation.Reply: 
+                a = pkt[Arp]
+                #self._log.debug("Got ARP response: {}-{}".format(a.senderhwaddr, a.senderprotoaddr))
+                self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
+            elif pkt.has_header(ICMP):
+                #self._log.debug("Got something ICMP")
+                if (pkt[ICMP].icmptype == ICMPType.EchoReply and \
+                    pkt[ICMP].icmpdata.identifier == self._icmpident):
+                    seq = pkt[ICMP].icmpdata.sequence
+                    #self._log.debug("Got ICMP response on {} at {}: {}".format(name, ts, pkt))
+                    self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
+                elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
+                    p = Packet(pkt[ICMP].icmpdata.data, first_header=IPv4) 
+                    if p[ICMP].icmpdata.identifier == self._icmpident:
+                        #self._log.debug("Got ICMP excerr on {} at {}: {}".format(name, ts, pkt))
+                        #self._log.debug("orig pkt: {}".format(p))
+                        seq = p[ICMP].icmpdata.sequence
+                        ident = p[ICMP].icmpdata.identifier
+                        self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
+                elif pkt[ICMP].icmptype == ICMPType.EchoRequest and \
+                    pkt[ICMP].icmpdata.identifier == self._icmpident:
+                        #self._log.debug("Got our request pkt on {} at {}: {}".format(name, ts, pkt))
+                        seq = pkt[ICMP].icmpdata.sequence
+                        self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
+            else:
+                self._log.debug("Ignoring packet from {}: {}".format(name, pkt))
+
+    def _send_packet(self, intf, pkt):
+        assert(intf in self._ports)
+        assert(isinstance(pkt, Packet))
+        pcapdev = self._ports[intf]
+        pcapdev.send_packet(pkt.to_bytes())
+
+    async def _do_arp(self, dst, intf):
+        if dst in self._arp_cache:
+            return self._arp_cache[dst]
+        ifinfo = self._ifinfo[intf]
+        arpreq = create_ip_arp_request(ifinfo.ethsrc, 
+            ifinfo.ipsrc.ip, dst)
+        fareth = "00:00:00:00:00:00"
+        self._send_packet(ifinfo.name, arpreq)
+        while True:
+            try:
+                ethaddr,ipaddr = await self._arp_queue.get()
+            except asyncio.CancelledError:
+                break
+            self._arp_cache[ipaddr] = ethaddr
+            if ipaddr == dst:
+                break
+        return ethaddr
+
+    async def _emiticmp(self, dst):
+        nh = self._routes[dst]
+        try:
+            ethaddr = await self._do_arp(nh.nexthop, nh.interface)
+        except asyncio.CancelledError:
+            return
+        thisintf = self._ifinfo[nh.interface]
+        self._icmpident = self._pid%65535
+        pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
+            IPv4(src=thisintf.ipsrc.ip, dst=dst, protocol=IPProtocol.ICMP,
+                ttl=2) + \
+            ICMP(icmptype=ICMPType.EchoRequest,
+                identifier=self._icmpident,
+                sequence=self._icmpseq)
+        self._log.debug("Emitting icmp echo request: {}".format(pkt))
+        self._icmpseq += 1
+        if self._icmpseq == 65536:
+            self._icmpseq = 1
+        self._send_packet(nh.interface, pkt)
+
+    async def _ping_collector(self, fut):
+        A = ICMPType.EchoRequest
+        B = ICMPType.TimeExceeded
+        seqhash = {A: {}, B: {}}
+        self._num_probes = 0
+
+        while not self._done:
+            try:
+                ts,seq,src,pkt = await self._icmp_queue.get()
+            except asyncio.CancelledError:
+                break
+            xhash = seqhash[pkt[ICMP].icmptype]
+            xhash[seq] = ts
+            if seq in seqhash[A] and seq in seqhash[B]:
+                rtt = seqhash[B].pop(seq) - seqhash[A].pop(seq)
+                self._add_result({'icmprtt':rtt,'seq':seq})
+                self._num_probes += 1
+
+        echo = seqhash[A]
+        exc = seqhash[B]
+
+        for seq in sorted(echo.keys()):
+            if seq in exc:
+                rtt = exc[seq] - echo[seq]
+            else:
+                rtt = float('inf')
+            self._add_result({'icmprtt':rtt,'seq':seq})
+            self._num_probes += 1
+        fut.set_result(self._num_probes)
+
+    def setup(self, metamaster, resultscontainer):
+        self._ifinfo = get_interface_info(self._ports.keys())
+        self._routes = get_routes(self._ifinfo)
+        self._add_result = resultscontainer.add_result
+        self._add_metadata = metamaster.add_metadata
+
+        # debugging: dump out all interface and route info
+        # for intf in self._ifinfo:
+        #     print("{} -> {}".format(intf, self._ifinfo[intf]))
+        # for prefix in self._routes:
+        #     print("{} -> {}".format(prefix, self._routes[prefix]))
+
+    def cleanup(self):
+        # close pcap devices and get stats from them
+        pcapstats = {}
+        for ifname,pcapdev in self._ports.items():
+            s = pcapdev.stats()
+            pcapstats[ifname] = {'recv':s.ps_recv,
+                'pcapdrop':s.ps_drop, 'ifdrop':s.ps_ifdrop}
+            self._log.info("Closing {}: {}".format(ifname, s))
+            pcapdev.close()
+
+        self._add_metadata('libpcap_stats', pcapstats)
+        self._add_metadata('icmpsource_config', {
+                'hops_monitored': self._numhops,
+                'total_probes_emitted': self._num_probes,
+            })
+
 
 class CPUDataSource(DataSource):
     '''
     Monitor CPU usage (via psutil module)
     '''
     def __init__(self):
+        DataSource.__init__(self)
         x = cpu_times_percent() # as per psutil docs: first call will give rubbish 
         self._keys = [ a for a in dir(x) if not a.startswith('_') and \
             not callable(getattr(x,a)) ]
@@ -60,6 +270,7 @@ class IODataSource(DataSource):
     counter values; internally we keep last sample and only store differences.
     '''
     def __init__(self):
+        DataSource.__init__(self)
         x = self._lastsample = disk_io_counters(perdisk=True) # as per psutil docs: first call will give rubbish 
         self._disks = x.keys()
         d1 = list(self._disks)[0]
@@ -85,6 +296,7 @@ class NetIfDataSource(DataSource):
     store differences.
     '''
     def __init__(self, *nics_of_interest):
+        DataSource.__init__(self)
         x = self._lastsample = net_io_counters(pernic=True) # as per psutil docs: first call will give rubbish 
         if not nics_of_interest:
             self._nics = x.keys()
@@ -109,6 +321,7 @@ class MemoryDataSource(DataSource):
     Monitor memory usage via psutil.
     '''
     def __init__(self):
+        DataSource.__init__(self)
         x = virtual_memory() # as per psutil docs: first call will give rubbish 
         self._keys = [ a for a in dir(x) if not a.startswith('_') and \
             not callable(getattr(x,a)) ]
@@ -172,10 +385,14 @@ class SystemObserver(object):
         self._intervalfn = intervalfn
         self._dropfirst = dropfirst # for psutil data, best to drop the first measurement
 
+    def setup(self, metamaster):
+        self._source.setup(metamaster, self._results)
+
     async def __call__(self):
         while True:
             sample = self._source()
-            self._results.add_result(sample)
+            if sample is not None:
+                self._results.add_result(sample)
 
             if self._done or \
                 asyncio.Task.current_task().cancelled():
@@ -191,6 +408,8 @@ class SystemObserver(object):
 
     def stop(self):
         self._done = True
+        self._source.stop()
+        asyncio.get_event_loop().call_soon(self._source.cleanup)
 
     def set_intervalfn(self, fn):
         assert(callable(fn))
@@ -208,6 +427,7 @@ def sig_catch(*args):
 
 def stop_world():
     asyncio.get_event_loop().stop()
+
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()

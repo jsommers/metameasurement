@@ -63,9 +63,7 @@ def _dump_keys(metad):
                 for obskey in obsdict.keys():
                     print(':'.join((currkey,k,obskey)))
 
-
     _dump_helper('monitors', metad)
-    _dump_helper('localnet', metad)
 
 def main():
     parser = argparse.ArgumentParser(
