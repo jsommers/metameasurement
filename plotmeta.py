@@ -23,11 +23,7 @@ def _gather_ts(metad, k):
     return tslist, dlist
 
 def plotItems(inbase, metadata, keys):
-    '''
-    FIXME: As of now, if there are more than 4 subplots, the
-    plots look ugly. To add position logic.
-    '''
-    f, axarr = plt.subplots(len(keys), sharex=True)
+    f, axarr = plt.subplots(figsize=(len(keys)*3,len(keys)*4), nrows=len(keys), ncols=1, sharex=True)
     color_cycle = cycler(c=['r', 'g', 'b'])
     ls_cycle = cycler('ls', ['-.', '--', '-', ':'])
     lw_cycle = cycler('lw', range(1, 4))
@@ -40,7 +36,9 @@ def plotItems(inbase, metadata, keys):
     for idx, key in enumerate(keys):
         ts, data = _gather_ts(metadata, key)
         axarr[idx].plot(ts, data, label=key, **styles[idx])
+        axarr[idx].grid()
         axarr[idx].set_ylabel(key)
+    axarr[len(keys)-1].set_xlabel("Time (s)")
 
     plt.savefig("{}.png".format(inbase))
 
