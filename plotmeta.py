@@ -6,7 +6,7 @@ import os.path
 import matplotlib.pyplot as plt
 
 def _gather_ts(metad, k):
-    klist = k.split(':') 
+    klist = k.split(':')
     if len(klist) > 2:
         return _gather_ts(metad[klist[0]], ':'.join(klist[1:]))
 
@@ -68,8 +68,13 @@ def _dump_keys(metad):
 def main():
     parser = argparse.ArgumentParser(
             description='Plot measurement metadata')
-    parser.add_argument('-i', '--item', dest='items', action='append', 
-                        help='Include the given item in the plot, e.g., monitors:cpu:idle')
+    parser.add_argument('-i', '--item', dest='items', action='append', \
+                        help='Include individual item in the plot, e.g., monitors:cpu:idle')
+    parser.add_argument('-g', '--group', dest='groups', action='append', \
+                        help='Include a group of items in the plot, e.g., \
+                        rtt includes icmprtt and seq')
+    parser.add_argument('-a', '--all', action='store_true', \
+                        help='Plot all groups in separate subplots.')
     parser.add_argument('jsonmeta', nargs=1)
     args = parser.parse_args()
 
@@ -77,14 +82,18 @@ def main():
     with open(infile) as infileh:
         meta = json.load(infileh)
 
-    if not args.items:
-        print("Must include at least one item to plot.  Here are valid item strings:")
-        _dump_keys(meta)        
-        sys.exit(-1)        
-
     inbase,ext = os.path.splitext(infile)
-    plotit(inbase, meta, args.items)
+    if args.items:
+        print("{0}".format(args.items))
+        plotit(inbase, meta, args.items)
+    elif args.groups:
+        print("{0}".format(args.groups))
+    elif args.all:
+        print("{0}".format(args.all))
+    else:
+        print("Must include at least one item to plot.  Here are valid item strings:")
+        _dump_keys(meta)
+        sys.exit(-1)
 
 if __name__ == '__main__':
     main()
-
