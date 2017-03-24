@@ -4,6 +4,7 @@ import json
 import os.path
 
 import matplotlib.pyplot as plt
+from cycler import cycler
 
 def _gather_ts(metad, k):
     klist = k.split(':')
@@ -21,36 +22,29 @@ def _gather_ts(metad, k):
     dlist = [ t[1][dkey] for t in data ]
     return tslist, dlist
 
-def plotit(inbase, metadata, keys):
-    fig,ax1 = plt.subplots()
+def plotItems(inbase, metadata, keys):
+    f, axarr = plt.subplots(len(keys), sharex=True)
+    color_cycle = cycler(c=['r', 'g', 'b'])
+    ls_cycle = cycler('ls', ['-.', '--', '-', ':'])
+    lw_cycle = cycler('lw', range(1, 4))
 
-    k1 = keys.pop()
+    sty_cycle = ls_cycle * (color_cycle + lw_cycle)
+    styles = []
+    for i, sty in enumerate(sty_cycle):
+        styles.append(sty)
 
-    ts1, data1 = _gather_ts(metadata, k1)
-    p1, = ax1.plot(ts1, data1, "b-", label=k1)
-    plines = [p1]
+    for idx, key in enumerate(keys):
+        ts, data = _gather_ts(metadata, key)
+        axarr[idx].plot(ts, data, label=key, **styles[idx])
+        axarr[idx].set_ylabel(key)
 
-    ax1.set_xlabel("Time (sec)")
-    ax1.set_ylabel(k1)
-    ax1.set_ylim(0, round(max(data1) * 1.25, 3))
-    ax1.yaxis.label.set_color(p1.get_color())
-
-    # FIXME only handle up to two keys/axes at this point
-    if len(keys):
-        k2 = keys.pop()
-        ts2, data2 = _gather_ts(metadata, k2)
-        axx = ax1.twinx()
-        p2, = axx.plot(ts2, data2, "r-", label=k2)
-        plines.append(p2)
-
-        axx.set_ylabel(k2)
-
-        axx.set_ylim(0, round(max(data2) * 1.25, 3))
-
-        axx.yaxis.label.set_color(p2.get_color())
-
-    ax1.legend(plines, [p.get_label() for p in plines])
     plt.savefig("{}.png".format(inbase))
+
+def plotGroups(inbase, metadata, keys):
+    print (inbase, metadata, keys)
+
+def plotAll(inbase, metadata):
+    print (inbase, metadata)
 
 def _dump_keys(metad):
     def _dump_helper(currkey, metad):
@@ -84,12 +78,14 @@ def main():
 
     inbase,ext = os.path.splitext(infile)
     if args.items:
-        print("{0}".format(args.items))
-        plotit(inbase, meta, args.items)
+        print("Plotting items: {0}".format(args.items))
+        plotItems(inbase+"_items", meta, args.items)
     elif args.groups:
-        print("{0}".format(args.groups))
+        print("Plotting groups: {0}".format(args.groups))
+        plotGroups(inbase, meta, args.groups)
     elif args.all:
-        print("{0}".format(args.all))
+        print("Plotting all items in all groups.")
+        plotAll(inbase, meta)
     else:
         print("Must include at least one item to plot.  Here are valid item strings:")
         _dump_keys(meta)
