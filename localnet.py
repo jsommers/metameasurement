@@ -15,8 +15,6 @@ from psutil import net_if_addrs
 
 __all__ = ['NextHop', 'InterfaceInfo', 'get_interface_info', 'get_routes']
 
-# FIXME: refactor to use psutil.net_if_addrs, since it is better tested to handle
-# various OSes
 
 class NextHop(object):
     def __init__(self, network, interface, ipaddr):
@@ -92,11 +90,18 @@ def get_interface_info(ifname_list):
 
         ifinfo = net_if_addrs()
         macaddr = ipaddr = mask = None
+        if sys.platform == 'darwin':
+            layer2addrfam = socket.AddressFamily.AF_LINK
+        elif sys.platform == 'linux':
+            layer2addrfam = socket.AddressFamily.AF_PACKET
+        else:
+            layer2addrfam = None # fail
+
         for addrinfo in ifinfo[pcapdev.name]:
             if addrinfo.family == socket.AddressFamily.AF_INET:
                 ipaddr = IPv4Address(addrinfo.address)
                 mask = IPv4Address(addrinfo.netmask)
-            elif addrinfo.family == socket.AddressFamily.AF_LINK:
+            elif addrinfo.family == layer2addrfam:
                 macaddr = EthAddr(addrinfo.address)
 
         ifnum = socket.if_nametoindex(pcapdev.name)
@@ -105,7 +110,7 @@ def get_interface_info(ifname_list):
     pdevs = [ p for p in pcap_devices() if p.name in ifname_list ]
     if not pdevs:
         print("No interfaces found to use")
-        return ifdict
+        return {}
     interfaces = [ assemble_devinfo(p) for p in pdevs ]
     ifdict = dict([(intf.name,intf) for intf in interfaces])
     return ifdict

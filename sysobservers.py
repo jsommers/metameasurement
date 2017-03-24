@@ -7,6 +7,7 @@ import logging
 import functools
 import random
 import os
+from math import isinf
 
 from psutil import cpu_times_percent, disk_io_counters, \
     net_io_counters, virtual_memory
@@ -95,11 +96,14 @@ class ICMPHopLimitedRTTSource(DataSource):
         self._log = logging.getLogger('mm')
         self._monfut = asyncio.Future()
         self._ifinfo = self._routes = None
-        self._pid = os.getpid()
+        self._icmpident = os.getpid()%65536
+        self._seqhash = { ICMPType.EchoRequest: {}, 
+                          ICMPType.TimeExceeded: {} }
         asyncio.ensure_future(self._ping_collector(self._monfut))
 
     def add_port(self, ifname, filterstr=''):
         p = pcapffi.PcapLiveDevice(ifname, filterstr=filterstr)
+        p.set_direction(pcapffi.PcapDirection.InOut)
         self._ports[ifname] = p
         asyncio.get_event_loop().add_reader(p.fd, 
             functools.partial(self._packet_arrival_callback, pcapdev=p))
@@ -147,8 +151,8 @@ class ICMPHopLimitedRTTSource(DataSource):
                 self._log.debug("Ignoring packet from {}: {}".format(name, pkt))
 
     def _send_packet(self, intf, pkt):
-        assert(intf in self._ports)
-        assert(isinstance(pkt, Packet))
+        #assert(intf in self._ports)
+        #assert(isinstance(pkt, Packet))
         pcapdev = self._ports[intf]
         pcapdev.send_packet(pkt.to_bytes())
 
@@ -177,7 +181,6 @@ class ICMPHopLimitedRTTSource(DataSource):
         except asyncio.CancelledError:
             return
         thisintf = self._ifinfo[nh.interface]
-        self._icmpident = self._pid%65535
         pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
             IPv4(src=thisintf.ipsrc.ip, dst=dst, protocol=IPProtocol.ICMP,
                 ttl=2) + \
@@ -185,6 +188,7 @@ class ICMPHopLimitedRTTSource(DataSource):
                 identifier=self._icmpident,
                 sequence=self._icmpseq)
         self._log.debug("Emitting icmp echo request: {}".format(pkt))
+        self._seqhash[ICMPType.EchoRequest][self._icmpseq] = time()
         self._icmpseq += 1
         if self._icmpseq == 65536:
             self._icmpseq = 1
@@ -193,7 +197,7 @@ class ICMPHopLimitedRTTSource(DataSource):
     async def _ping_collector(self, fut):
         A = ICMPType.EchoRequest
         B = ICMPType.TimeExceeded
-        seqhash = {A: {}, B: {}}
+        seqhash = self._seqhash
         self._num_probes = 0
 
         while not self._done:
@@ -201,6 +205,7 @@ class ICMPHopLimitedRTTSource(DataSource):
                 ts,seq,src,pkt = await self._icmp_queue.get()
             except asyncio.CancelledError:
                 break
+            # if we receive a pkt we send, timestamp gets updated (overwritten)
             xhash = seqhash[pkt[ICMP].icmptype]
             xhash[seq] = ts
             if seq in seqhash[A] and seq in seqhash[B]:
@@ -347,7 +352,7 @@ class ResultsContainer(object):
     def compute(self, fn, key, lastn=0):
         if not self._results:
             return None
-        return fn([ t[1][key] for t in self._results[-lastn:] ])
+        return fn([ t[1][key] for t in self._results[-lastn:] if not isinf(t[1][key]) ])
 
     def summary(self, fn):
         if not self._results:
@@ -373,7 +378,8 @@ class ResultsContainer(object):
         return self._results
 
     def drop_first(self):
-        self._results.pop(0)
+        if self._results:
+            self._results.pop(0)
 
 
 class SystemObserver(object):
