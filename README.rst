@@ -17,10 +17,14 @@ A basic recipe for running::
     python3 metameasurement.py
 
     # plot stuff
-    python3 plotmeta.py -i monitors:rtt:icmprtt -i monitors:cpu:idle <json file produced by previous step>
-
-    # see what metadata can be plotted
-    python3 plotmeta <json file produced by previous step>
+    # use -i to plot individial items
+    # use -g to plot all items in a group
+    # use -a to plot all items in all groups
+    # see what metadata can be plotted without any arguments
+    python3 plotmeta.py -i monitors:rtt:icmprtt -i monitors:rtt:seq -i monitors:cpu:idle <json file produced by previous step>
+    python3 plotmeta.py -g rtt <json file produced by previous step>
+    python3 plotmeta.py -a <json file produced by previous step>
+    python3 plotmeta.py <json file produced by previous step>
 
     # use a different external measurement tool
     python3 metameasurement.py -c "ping -c 100 www.google.com" 
