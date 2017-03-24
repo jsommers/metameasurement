@@ -23,6 +23,10 @@ def _gather_ts(metad, k):
     return tslist, dlist
 
 def plotItems(inbase, metadata, keys):
+    '''
+    FIXME: As of now, if there are more than 4 subplots, the
+    plots look ugly. To add position logic.
+    '''
     f, axarr = plt.subplots(len(keys), sharex=True)
     color_cycle = cycler(c=['r', 'g', 'b'])
     ls_cycle = cycler('ls', ['-.', '--', '-', ':'])
@@ -41,12 +45,17 @@ def plotItems(inbase, metadata, keys):
     plt.savefig("{}.png".format(inbase))
 
 def plotGroups(inbase, metadata, keys):
-    print (inbase, metadata, keys)
+    for key in keys:
+        items = [s for s in _dump_keys(metadata) if key in str(s)]
+        plotItems(inbase+"_"+key, metadata, items)
 
 def plotAll(inbase, metadata):
-    print (inbase, metadata)
+    groups = list(set([s.split(":")[1] for s in _dump_keys(metadata)]))
+    for group in groups:
+        plotGroups(inbase, metadata, [group])
 
 def _dump_keys(metad):
+    items = []
     def _dump_helper(currkey, metad):
         xdict = metad[currkey]
         for k,v in xdict.items():
@@ -55,9 +64,10 @@ def _dump_keys(metad):
             elif isinstance(v, list):
                 ts, obsdict = v.pop(0)
                 for obskey in obsdict.keys():
-                    print(':'.join((currkey,k,obskey)))
+                    items.append(':'.join((currkey,k,obskey)))
 
     _dump_helper('monitors', metad)
+    return items
 
 def main():
     parser = argparse.ArgumentParser(
@@ -88,7 +98,8 @@ def main():
         plotAll(inbase, meta)
     else:
         print("Must include at least one item to plot.  Here are valid item strings:")
-        _dump_keys(meta)
+        items = _dump_keys(meta)
+        print(items)
         sys.exit(-1)
 
 if __name__ == '__main__':
