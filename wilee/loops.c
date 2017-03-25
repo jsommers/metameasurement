@@ -62,7 +62,7 @@ void calibrate()
 	}
 	cpu_calibrate();
 	mem_calibrate();
-	sleep_calibrate();
+	//sleep_calibrate();
 }
 
 int cpu_inner_loop(long cal, int p)
@@ -75,7 +75,7 @@ int cpu_inner_loop(long cal, int p)
 			tmp = 1;
 			for (k = 0; k < p; k++)
 				tmp *= cpuness_array[i];
-			sum += tmp;		
+			sum += tmp;
 		}
 		if (sum % 2 && sum % 3)
 			jnk++;
@@ -99,7 +99,7 @@ void cpu_calibrate()
 
 	if (!WILEE_CALIBRATE)
 		return;
-/* 
+/*
  * Calibrate by checking how long it takes to run calib_length number of
  * loops.
  */
@@ -109,7 +109,7 @@ void cpu_calibrate()
 	time_per_cpuness_iteration = (float)(timeval_diff(&pr, &ne))
 			 / (float)calib_length;
 	calib_loops = loop_length / time_per_cpuness_iteration;
-/* 
+/*
  * Verify that our calculation is correct by running the calculated number of
  * loops. The result should be loop_length or close to it at least.
  */
@@ -119,10 +119,10 @@ void cpu_calibrate()
 
 	printf("CPU Calibration\n");
 	printf("---------------\n");
-	printf("Working set size used: %d\n", CPUNESS_INT_ARRAY_SIZE);
-	printf("Time per iteration: %f\n", time_per_cpuness_iteration);
-	printf("Number of loops for 100%% CPUness: %lld\n", calib_loops);
-	printf("Time for above loops: %ld\n", timeval_diff(&pr, &ne));
+	//printf("Working set size used: %d\n", CPUNESS_INT_ARRAY_SIZE);
+	//printf("Time per iteration: %f\n", time_per_cpuness_iteration);
+	printf("Number of loops for 100%% CPUness: %lld (-c flag)\n", calib_loops);
+	//printf("Time for above loops: %ld\n", timeval_diff(&pr, &ne));
 }
 
 int mem_inner_loop(long cal_len, long cal_siz, int p)
@@ -141,10 +141,10 @@ int mem_inner_loop(long cal_len, long cal_siz, int p)
 			tmp += curr->num;
 			curr = curr->next;
 			if (curr == NULL) {
-				curr = st;	
+				curr = st;
 				printf("no\n");
 			}
-			sum += tmp;		
+			sum += tmp;
 		}
 		if (sum % 2 && sum % 3)
 			jnk++;
@@ -172,7 +172,7 @@ int randomize_array(struct mem_arr_struct* arr, int siz)
 	for (i = 0; i < MEMNESS_INT_ARRAY_SIZE; i++) {
 //		printf("\n%d ", next_index);
 //		if (index_arr[next_index] == 1) printf("ooh%d", next_index);
-		
+
 		from = index_arr[curr_index];
 
 		tmp = index_arr[limit - 1];
@@ -182,22 +182,22 @@ int randomize_array(struct mem_arr_struct* arr, int siz)
 		next_index = rand() % limit;
 		to = index_arr[next_index];
 //		printf("%d,%d->", from, to);
-		
+
 		memness_array[from].next = &memness_array[to];
 		memness_array[from].touched = to;
 
 		curr_index = next_index;
 		if (limit == 1)
-			break;		
+			break;
 	}
-	free(index_arr);	
+	free(index_arr);
 	c = &memness_array[start_index];
 	i = 0;
 /*	printf("\n");
 	while(c != NULL) {
 		printf("%d ", c->touched);
 		c = c->next;
-	}	
+	}
 	printf("\n");
 */
 	return start_index;
@@ -230,7 +230,7 @@ void mem_calibrate(void)
 
 	if (!WILEE_CALIBRATE)
 		return;
-/* 
+/*
  * Calibrate by checking how long it takes to run calib_length number of
  * loops on a calib_wss sized working set.
  */
@@ -242,7 +242,7 @@ void mem_calibrate(void)
 			 / (float)calib_length;
 	calib_loops = loop_length / time_per_memness_iteration;
 //	calib_loops = 0;
-	
+
 	gettimeofday(&pr, NULL);
 	mem_inner_loop(calib_loops, calib_wss, p);
 	gettimeofday(&ne, NULL);
@@ -250,14 +250,14 @@ void mem_calibrate(void)
 	printf("------------------\n");
 	printf("Memory Calibration\n");
 	printf("------------------\n");
-	printf("Working set size used: %d\n", calib_wss);
-	printf("Time per iteration: %f\n", time_per_memness_iteration);
-	printf("Number of loops for 100%% Memory-ness: %lld\n", calib_loops);
-	printf("Time for above loops: %ld\n", timeval_diff(&pr, &ne));
+	//printf("Working set size used: %d\n", calib_wss);
+	//printf("Time per iteration: %f\n", time_per_memness_iteration);
+	printf("Number of loops for 100%% Memory-ness: %lld (-m flag)\n", calib_loops);
+	//printf("Time for above loops: %ld\n", timeval_diff(&pr, &ne));
 }
 
 /*
- * usleep() is totally drunk! 
+ * usleep() is totally drunk!
  * Actually that isn't true.
  * My apologies. Never trust PAPI completely!
  */
@@ -269,11 +269,11 @@ void sleep_calibrate()
 
 	if (!WILEE_CALIBRATE)
 		return;
-	
+
 	printf("------------------\n");
 	printf("IO Calibration\n");
 	printf("------------------\n");
-	
+
 	for (i = 1; i <= 100; i+=10) {
 		gettimeofday(&pr, NULL);
 		usleep(i * min_gr);
@@ -317,7 +317,7 @@ int check_input_sanity(int argc, char* argv[])
 				!strcmp(argv[argc - n + 1], "--loop_length")) {
 			loop_length = atoi(argv[argc - n + 2]);
 			if (loop_length < WEC_MINIMUM_LOOP_GRANULARITY) {
-				fprintf(stderr, "Setting loop granularity to %d\n", 
+				fprintf(stderr, "Setting loop granularity to %d\n",
 						WEC_MINIMUM_LOOP_GRANULARITY);
 				loop_length = WEC_MINIMUM_LOOP_GRANULARITY;
 			}
@@ -349,15 +349,15 @@ int check_input_sanity(int argc, char* argv[])
 			n -= 2;
 		}
 	}
-	if (!(CPUNESS_INPUT && MEMNESS_INPUT 
+	if (!(CPUNESS_INPUT && MEMNESS_INPUT
 			&& LOOPLEN_INPUT && LOOPNUM_INPUT)) {
 		if (WILEE_CALIBRATE)
 			goto out;
 		fprintf(stderr, "Insufficient input parameters! Ignoring.\n");
 		return -1;
 	}
-	if (!WILEE_CALIBRATE && 
-			!(TIME_PER_CPU_LOOP && TIME_PER_MEM_LOOP && 
+	if (!WILEE_CALIBRATE &&
+			!(TIME_PER_CPU_LOOP && TIME_PER_MEM_LOOP &&
 			IO_SCALE)) {
 		fprintf(stderr, "Insufficient calibration parameters!\n");
 		return -1;
@@ -393,13 +393,13 @@ void do_loops(void)
 	io_length = loop_length * ioness;
 	cpu_loops = cpu_length / time_per_cpuness_iteration;
 	mem_loops = mem_length / time_per_memness_iteration;
-	
+
 	gettimeofday(&pr, NULL);
 	for (i = 0; i < num_loops; i++) {
 		cpu_inner_loop(cpu_loops, p);
 		mem_inner_loop(mem_loops, MEM_CALIBRATION_WSS, p);
 		if (io_length)
-			usleep((int)(io_length / io_scale));		
+			usleep((int)(io_length / io_scale));
 	}
 	gettimeofday(&ne, NULL);
 
@@ -433,4 +433,4 @@ int main(int argc, char *argv[])
 		do_loops();
 	}
 //	c = getchar();
-}	
+}
