@@ -12,6 +12,10 @@ def get_gamma(probe_rate):
     desired_scale = shape/desired_mean
     return random.gammavariate(shape,1/desired_scale)
 
+def get_exponential(probe_rate):
+    r = random.expovariate
+    return r(probe_rate)
+
 def runCommand(command):
     p = subprocess.Popen(command, shell=True)
     pid, status = os.waitpid(p.pid, 0)
@@ -43,10 +47,12 @@ def main(args):
     while True:
         for _ in itertools.repeat(None, args.ontime):
             val = None
-            # TODO add switch for other distributions
             if args.dist=="gamma":
                 val = get_gamma(2)
-            callLoader(val, args)
+            if args.dist=="exponential":
+                val = get_exponential(2)
+                print (val)
+            # callLoader(val, args)
             sleep(1)
         sleep(args.offtime)
 

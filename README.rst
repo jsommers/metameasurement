@@ -36,7 +36,7 @@ For generating artificial load::
     # disk load with dd is used
     # network load is generated using with iPerf (so, the tool assumes that iPerf3 is installed)
     # loads are called in on and off phases and there is also a wait time
-    # loads are generated during on phases using different distributions
+    # loads are generated during on phases using different distributions (gamma, exponential)
 
     # Configuration
     # to configure wileE for the first time, use ./runLoad.sh 1
