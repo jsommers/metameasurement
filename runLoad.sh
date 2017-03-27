@@ -10,7 +10,21 @@ if [[ $compileFlag -eq "1" ]]; then
 fi
 
 if [[ $compileFlag -eq "0" ]]; then
-    python loadmeta.py -f gamma -s 2 -e 2 -w 5 \
-                       -c 376 -m 47 -d 1000 \
-                       -C 0.0 -M 0.0 -D
+    # run this for CPU and RAM load
+    # -C is maximum CPUness
+    # -M is maximum RAMness
+    # python 3 loadmeta.py -f gamma -s 2 -e 2 -w 5 \
+    #                      -c 376 -m 47 \
+    #                      -C 1.0 -M 0.0
+
+    # run this for disk load
+    # python3 loadmeta.py -f gamma -s 2 -e 2 -w 5 \
+    #                     -c 376 -m 47 -d 1000 \
+    #                     -C 0.0 -M 0.0 -D
+
+    # run this for network load
+    # remember to start iPerf server with "iperf3 -s"
+    python3 loadmeta.py -f gamma -s 2 -e 2 -w 5 \
+                        -c 376 -m 47 -n 2\
+                        -C 0.0 -M 0.0 -N -i "127.0.0.1"
 fi

@@ -28,7 +28,9 @@ def callLoader(val, args):
         command = "./wilee/wileE -C {0} -M {1} -n 1 -c {2} -m {3} --no_papi".format(args.cpuNeeded, args.memNeeded, cpuLoadNeeded, memLoadNeeded)
         runCommand(command)
     if args.netNeeded:
-        print ("Network needed")
+        bandwidthVal = val * args.netCalib
+        command = "iperf3 -c {0} -u -b {1:.2f}M -t 1".format(args.host, bandwidthVal)
+        runCommand(command)
     if args.diskNeeded:
         countVal = val * args.diskCalib
         command = "dd if=/dev/zero of=/tmp/testfile bs=512 count={0}".format(int(countVal))
@@ -69,9 +71,13 @@ if __name__ == "__main__":
                         help='Fraction of Memory utilization needed.')
     parser.add_argument('-N', '--netNeeded', dest='netNeeded', action='store_true', \
                         help='Flag to set if network traffic is needed.')
+    parser.add_argument('-n', '--net_calib', dest='netCalib', type=float, \
+                        help='Specifies the max. bandwidth.')
     parser.add_argument('-D', '--diskNeeded', dest='diskNeeded', action='store_true', \
                         help='Flag to set if disk load is needed.')
     parser.add_argument('-d', '--disk_calib', dest='diskCalib', type=int, \
                         help='Count of blocks to write.')
+    parser.add_argument('-i', '--iperfServer', dest='host', \
+                        help='iPerf3 server address.')
     args = parser.parse_args()
     main(args)
