@@ -10,5 +10,7 @@ if [[ $compileFlag -eq "1" ]]; then
 fi
 
 if [[ $compileFlag -eq "0" ]]; then
-    python loadmeta.py -d gamma -s 2 -e 2 -w 5 -c 376 -m 47 -C 0.0 -M 0.0 -N
+    python loadmeta.py -f gamma -s 2 -e 2 -w 5 \
+                       -c 376 -m 47 -d 1000 \
+                       -C 0.0 -M 0.0 -D
 fi

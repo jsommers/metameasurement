@@ -30,7 +30,9 @@ def callLoader(val, args):
     if args.netNeeded:
         print ("Network needed")
     if args.diskNeeded:
-        print ("Disk needed")
+        countVal = val * args.diskCalib
+        command = "dd if=/dev/zero of=/tmp/testfile bs=512 count={0}".format(int(countVal))
+        runCommand(command)
 
 def main(args):
     print ("Entering warm-up phase for {0} seconds.".format(args.warmup))
@@ -48,7 +50,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create artificial load')
-    parser.add_argument('-d', '--distribution', dest='dist', \
+    parser.add_argument('-f', '--function', dest='dist', \
                         help='Distribution to be used for on/off period. \
                         Supported distributions are gamma.')
     parser.add_argument('-s', '--ontime', dest='ontime', type=int, \
@@ -69,5 +71,7 @@ if __name__ == "__main__":
                         help='Flag to set if network traffic is needed.')
     parser.add_argument('-D', '--diskNeeded', dest='diskNeeded', action='store_true', \
                         help='Flag to set if disk load is needed.')
+    parser.add_argument('-d', '--disk_calib', dest='diskCalib', type=int, \
+                        help='Count of blocks to write.')
     args = parser.parse_args()
     main(args)
