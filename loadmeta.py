@@ -12,6 +12,10 @@ def get_gamma(probe_rate):
     desired_scale = shape/desired_mean
     return random.gammavariate(shape,1/desired_scale)
 
+def runCommand(command):
+    p = subprocess.Popen(command, shell=True)
+    pid, status = os.waitpid(p.pid, 0)
+
 def callLoader(val, args):
     cpuLoadNeeded = 0.0
     memLoadNeeded = 0.0
@@ -20,12 +24,13 @@ def callLoader(val, args):
     if args.memNeeded > 0.0:
         memLoadNeeded = args.memCalib * val
 
-    # TODO configure the tool properly
-    # TODO add network load logic
-    command = "./wilee/wileE -C {0} -M {1} -n 1 -c {2} -m {3} --no_papi".format(args.cpuNeeded, args.memNeeded, cpuLoadNeeded, memLoadNeeded)
-    print (command)
-    p = subprocess.Popen(command, shell=True)
-    pid, status = os.waitpid(p.pid, 0)
+    if args.cpuNeeded > 0.0 or args.memNeeded > 0.0:
+        command = "./wilee/wileE -C {0} -M {1} -n 1 -c {2} -m {3} --no_papi".format(args.cpuNeeded, args.memNeeded, cpuLoadNeeded, memLoadNeeded)
+        runCommand(command)
+    if args.netNeeded:
+        print ("Network needed")
+    if args.diskNeeded:
+        print ("Disk needed")
 
 def main(args):
     print ("Entering warm-up phase for {0} seconds.".format(args.warmup))
@@ -60,5 +65,9 @@ if __name__ == "__main__":
                         help='Fraction of CPU utilization needed.')
     parser.add_argument('-M', '--memNeeded', dest='memNeeded', type=float, \
                         help='Fraction of Memory utilization needed.')
+    parser.add_argument('-N', '--netNeeded', dest='netNeeded', action='store_true', \
+                        help='Flag to set if network traffic is needed.')
+    parser.add_argument('-D', '--diskNeeded', dest='diskNeeded', action='store_true', \
+                        help='Flag to set if disk load is needed.')
     args = parser.parse_args()
     main(args)

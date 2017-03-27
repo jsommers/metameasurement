@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>
+#include <string.h>
 #include "wec.h"
 #include "wec_decl.h"
 
@@ -423,9 +424,9 @@ int main(int argc, char *argv[])
 {
 	char c;
 	system("clear");
-	if (check_input_sanity(argc,argv) < 0) {
-		exit(1);
-	}
+	//if (check_input_sanity(argc,argv) < 0) {
+	//	exit(1);
+	//}
 	calibrate();
 	if (CPUNESS_INPUT && MEMNESS_INPUT && LOOPLEN_INPUT && LOOPNUM_INPUT) {
 		printf("Hit any key to start!\n");
