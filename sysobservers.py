@@ -1,7 +1,9 @@
+import sys
 from abc import abstractmethod
 import asyncio
 from time import sleep, time
 import re
+import socket
 import signal
 import logging
 import functools
@@ -93,6 +95,8 @@ class ICMPHopLimitedRTTSource(DataSource):
         self._arp_queue = asyncio.Queue()
         self._icmp_queue = asyncio.Queue()
         self._ports = {}
+        if sys.platform == 'linux':
+            self._sendports = {}
         self._log = logging.getLogger('mm')
         self._monfut = asyncio.Future()
         self._ifinfo = self._routes = None
@@ -102,9 +106,49 @@ class ICMPHopLimitedRTTSource(DataSource):
         asyncio.ensure_future(self._ping_collector(self._monfut))
 
     def add_port(self, ifname, filterstr=''):
-        p = pcapffi.PcapLiveDevice(ifname, filterstr=filterstr)
+        p = pcapffi.PcapLiveDevice.create(ifname)
+        p.snaplen = 80
+        p.set_promiscuous(True)
+        p.set_timeout(1)
+
+        # choose the "best" timestamp available:
+        # highest number up to 3 (don't use unsynced adapter stamps)
+
+        stamptypes = p.list_tstamp_types()
+        if len(stamptypes):
+            if PcapTstampType.AdapterUnsync in stamptypes:
+                stamptypes.remove(PcapTstampType.AdapterUnsync)
+            beststamp = max(stamptypes)
+            try:
+                p.set_tstamp_type(beststamp)
+                self._log.info("Set timestamp type to {}".format(beststamp))
+            except:
+                self._log.warn("Couldn't set timestamp type to the advertised value {}".format(beststamp))
+
+        try:
+            p.tstamp_precision = pcapffi.PcapTstampPrecision.Nano
+            self._log.info("Using nanosecond timestamp precision.")
+        except:
+            self._log.info("Using microsecond timestamp precision.")
+
+        w = p.activate()
+        if w != 0:
+            self._log.warn("Warning on activation: {}".format(w))
+
         p.set_direction(pcapffi.PcapDirection.InOut)
+        p.set_filter("icmp or arp")
+
         self._ports[ifname] = p
+        if sys.platform == 'linux':
+            # on Linux, create a separate packet/raw socket for sending due to
+            # linux-only limitations.  In particular, unlike other platforms (BSDish),
+            # we cannoot receive the same packet as sent on a device (and thus get
+            # hw timestamps on send).  Thus, we create a separate device for sending
+            # and can receive both outgoing (that we send) and incoming packets.
+            s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, EtherType.IPv4)
+            s.bind((ifname, EtherType.IPv4))  
+            self._sendports[ifname] = sock
+
         asyncio.get_event_loop().add_reader(p.fd, 
             functools.partial(self._packet_arrival_callback, pcapdev=p))
 
@@ -151,10 +195,11 @@ class ICMPHopLimitedRTTSource(DataSource):
                 self._log.debug("Ignoring packet from {}: {}".format(name, pkt))
 
     def _send_packet(self, intf, pkt):
-        #assert(intf in self._ports)
-        #assert(isinstance(pkt, Packet))
-        pcapdev = self._ports[intf]
-        pcapdev.send_packet(pkt.to_bytes())
+        if sys.platform == 'linux':
+            dev = self._sendports[intf]
+        else:
+            dev = self._ports[intf]
+        dev.send_packet(pkt.to_bytes()) 
 
     async def _do_arp(self, dst, intf):
         if dst in self._arp_cache:
@@ -183,15 +228,17 @@ class ICMPHopLimitedRTTSource(DataSource):
         thisintf = self._ifinfo[nh.interface]
         pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
             IPv4(src=thisintf.ipsrc.ip, dst=dst, protocol=IPProtocol.ICMP,
-                ttl=2) + \
+                ttl=1) + \
             ICMP(icmptype=ICMPType.EchoRequest,
                 identifier=self._icmpident,
                 sequence=self._icmpseq)
         self._log.debug("Emitting icmp echo request: {}".format(pkt))
-        self._seqhash[ICMPType.EchoRequest][self._icmpseq] = time()
+        seq = self._icmpseq
+        xhash = self._seqhash[ICMPType.EchoRequest]
         self._icmpseq += 1
         if self._icmpseq == 65536:
             self._icmpseq = 1
+        xhash[seq] = time()
         self._send_packet(nh.interface, pkt)
 
     async def _ping_collector(self, fut):
@@ -246,6 +293,10 @@ class ICMPHopLimitedRTTSource(DataSource):
                 'pcapdrop':s.ps_drop, 'ifdrop':s.ps_ifdrop}
             self._log.info("Closing {}: {}".format(ifname, s))
             pcapdev.close()
+        if sys.platform == 'linux':
+            for ifname,rawsock in self._sendports.items():
+                self._log.info("Closing rawsock for sending on {}".format(ifname, s))
+                rawsock.close()
 
         self._add_metadata('libpcap_stats', pcapstats)
         self._add_metadata('icmpsource_config', {
