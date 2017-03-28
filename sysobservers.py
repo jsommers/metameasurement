@@ -116,8 +116,8 @@ class ICMPHopLimitedRTTSource(DataSource):
 
         stamptypes = p.list_tstamp_types()
         if len(stamptypes):
-            if PcapTstampType.AdapterUnsync in stamptypes:
-                stamptypes.remove(PcapTstampType.AdapterUnsync)
+            if pcapffi.PcapTstampType.AdapterUnsync in stamptypes:
+                stamptypes.remove(pcapffi.PcapTstampType.AdapterUnsync)
             beststamp = max(stamptypes)
             try:
                 p.set_tstamp_type(beststamp)
@@ -147,7 +147,7 @@ class ICMPHopLimitedRTTSource(DataSource):
             # and can receive both outgoing (that we send) and incoming packets.
             s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, EtherType.IPv4)
             s.bind((ifname, EtherType.IPv4))  
-            self._sendports[ifname] = sock
+            self._sendports[ifname] = s
 
         asyncio.get_event_loop().add_reader(p.fd, 
             functools.partial(self._packet_arrival_callback, pcapdev=p))
@@ -197,9 +197,10 @@ class ICMPHopLimitedRTTSource(DataSource):
     def _send_packet(self, intf, pkt):
         if sys.platform == 'linux':
             dev = self._sendports[intf]
+            dev.send(pkt.to_bytes()) 
         else:
             dev = self._ports[intf]
-        dev.send_packet(pkt.to_bytes()) 
+            dev.send_packet(pkt.to_bytes()) 
 
     async def _do_arp(self, dst, intf):
         if dst in self._arp_cache:
