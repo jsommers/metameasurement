@@ -157,16 +157,26 @@ def main():
     parser.add_argument('-c', '--command', dest='commandline', type=str, default='sleep 5',
                         help='The full command line for running an active measurement tool'
                              ' (note that the command line almost certainly needs to be quoted)')
+    parser.add_argument('-i', '--interface', dest='iflist', action='append',
+                        metavar="INTF_NAME",
+                        help='Name of a network interface that should be monitored '
+                        '(can be specified multiple times)')
     args = parser.parse_args()
+
+    if not args.iflist:
+        print("Must specify at least one interface to monitor")
+        parser.print_usage()
+        return -1
 
     m = MetadataOrchestrator(args.verbose, args.fileprefix)
     m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(1.0,1.0)))
     m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0)))
-    m.add_monitor('netstat', SystemObserver(NetIfDataSource('en0'), lambda: random.uniform(1.0,1.0)))
+    m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(1.0,1.0)))
     m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0,2.0)))
 
     rttsrc = ICMPHopLimitedRTTSource()
-    rttsrc.add_port('en0', 'icmp or arp')
+    for intf in args.iflist:
+        rttsrc.add_port(intf, 'icmp or arp')
     gparms = get_gamma_params(2) # init target rate, 2 probes/sec
     m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
 
