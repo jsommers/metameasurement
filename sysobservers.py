@@ -124,9 +124,9 @@ class ICMPHopLimitedRTTSource(DataSource):
             try:
                 p.set_tstamp_type(beststamp)
                 stval = pcapffi.PcapTstampType(beststamp)
-                self._log.info("Set timestamp type to {}".format(stval))
+                self._log.info("Set timestamp type to {}".format(stval.name))
             except:
-                self._log.warn("Couldn't set timestamp type to the advertised value {}".format(stval))
+                self._log.warn("Couldn't set timestamp type to the advertised value {}".format(stval.name))
 
         try:
             p.tstamp_precision = pcapffi.PcapTstampPrecision.Nano
@@ -137,7 +137,7 @@ class ICMPHopLimitedRTTSource(DataSource):
         w = p.activate()
         if w != 0:
             wval = pcapffi.PcapWarning(w)
-            self._log.warn("Warning on activation: {}".format(wval))
+            self._log.warn("Warning on activation: {}".format(wval.name))
 
         p.set_direction(pcapffi.PcapDirection.InOut)
         p.set_filter("icmp or arp")
