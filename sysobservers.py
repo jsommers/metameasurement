@@ -101,8 +101,10 @@ class ICMPHopLimitedRTTSource(DataSource):
         self._monfut = asyncio.Future()
         self._ifinfo = self._routes = None
         self._icmpident = os.getpid()%65536
-        self._seqhash = { ICMPType.EchoRequest: {}, 
+        self._seqhash = { ICMPType.EchoRequest: {},
                           ICMPType.TimeExceeded: {} }
+        self._beforesend = {}
+        self._aftersend = {}
         asyncio.ensure_future(self._ping_collector(self._monfut))
 
     def add_port(self, ifname, filterstr=''):
@@ -121,9 +123,10 @@ class ICMPHopLimitedRTTSource(DataSource):
             beststamp = max(stamptypes)
             try:
                 p.set_tstamp_type(beststamp)
-                self._log.info("Set timestamp type to {}".format(beststamp))
+                stval = pcapffi.PcapTstampType(beststamp)
+                self._log.info("Set timestamp type to {}".format(stval))
             except:
-                self._log.warn("Couldn't set timestamp type to the advertised value {}".format(beststamp))
+                self._log.warn("Couldn't set timestamp type to the advertised value {}".format(stval))
 
         try:
             p.tstamp_precision = pcapffi.PcapTstampPrecision.Nano
@@ -133,7 +136,8 @@ class ICMPHopLimitedRTTSource(DataSource):
 
         w = p.activate()
         if w != 0:
-            self._log.warn("Warning on activation: {}".format(w))
+            wval = pcapffi.PcapWarning(w)
+            self._log.warn("Warning on activation: {}".format(wval))
 
         p.set_direction(pcapffi.PcapDirection.InOut)
         p.set_filter("icmp or arp")
@@ -169,26 +173,25 @@ class ICMPHopLimitedRTTSource(DataSource):
             if pkt.has_header(Arp) and \
               pkt[Arp].operation == ArpOperation.Reply: 
                 a = pkt[Arp]
-                #self._log.debug("Got ARP response: {}-{}".format(a.senderhwaddr, a.senderprotoaddr))
                 self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
             elif pkt.has_header(ICMP):
                 #self._log.debug("Got something ICMP")
                 if (pkt[ICMP].icmptype == ICMPType.EchoReply and \
                     pkt[ICMP].icmpdata.identifier == self._icmpident):
                     seq = pkt[ICMP].icmpdata.sequence
-                    #self._log.debug("Got ICMP response on {} at {}: {}".format(name, ts, pkt))
+                    self._log.debug("Got ICMP echo reply on {} at {}: {}".format(name, ts, pkt))
                     self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
                 elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
                     p = Packet(pkt[ICMP].icmpdata.data, first_header=IPv4) 
                     if p[ICMP].icmpdata.identifier == self._icmpident:
-                        #self._log.debug("Got ICMP excerr on {} at {}: {}".format(name, ts, pkt))
+                        self._log.debug("Got ICMP timeexc on {} at {}: {}".format(name, ts, pkt))
                         #self._log.debug("orig pkt: {}".format(p))
                         seq = p[ICMP].icmpdata.sequence
                         ident = p[ICMP].icmpdata.identifier
                         self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
                 elif pkt[ICMP].icmptype == ICMPType.EchoRequest and \
                     pkt[ICMP].icmpdata.identifier == self._icmpident:
-                        #self._log.debug("Got our request pkt on {} at {}: {}".format(name, ts, pkt))
+                        self._log.debug("Got our echo request on {} at {}: {}".format(name, ts, pkt))
                         seq = pkt[ICMP].icmpdata.sequence
                         self._icmp_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt))
             else:
@@ -229,23 +232,32 @@ class ICMPHopLimitedRTTSource(DataSource):
         thisintf = self._ifinfo[nh.interface]
         pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
             IPv4(src=thisintf.ipsrc.ip, dst=dst, protocol=IPProtocol.ICMP,
-                ttl=1) + \
+                ttl=self._numhops) + \
             ICMP(icmptype=ICMPType.EchoRequest,
                 identifier=self._icmpident,
                 sequence=self._icmpseq)
         self._log.debug("Emitting icmp echo request: {}".format(pkt))
         seq = self._icmpseq
-        xhash = self._seqhash[ICMPType.EchoRequest]
         self._icmpseq += 1
         if self._icmpseq == 65536:
             self._icmpseq = 1
-        xhash[seq] = time()
+        self._beforesend[seq] = time()
         self._send_packet(nh.interface, pkt)
+        self._aftersend[seq] = time()
 
     async def _ping_collector(self, fut):
+        def store_result(seq, beforesend, aftersend, pcapsend, pcaprecv):
+            icmprtt = pcaprecv - pcapsend
+            self._add_result({'icmprtt':icmprtt,'seq':seq,'recv':pcaprecv,'usersend1':beforesend,
+                'usersend2':aftersend,'pcapsend':pcapsend})
+            self._num_probes += 1
+
+
         A = ICMPType.EchoRequest
         B = ICMPType.TimeExceeded
         seqhash = self._seqhash
+        echo = self._seqhash[A]
+        exc = self._seqhash[B]
         self._num_probes = 0
 
         while not self._done:
@@ -253,24 +265,14 @@ class ICMPHopLimitedRTTSource(DataSource):
                 ts,seq,src,pkt = await self._icmp_queue.get()
             except asyncio.CancelledError:
                 break
-            # if we receive a pkt we send, timestamp gets updated (overwritten)
+
             xhash = seqhash[pkt[ICMP].icmptype]
             xhash[seq] = ts
-            if seq in seqhash[A] and seq in seqhash[B]:
-                rtt = seqhash[B].pop(seq) - seqhash[A].pop(seq)
-                self._add_result({'icmprtt':rtt,'seq':seq})
-                self._num_probes += 1
 
-        echo = seqhash[A]
-        exc = seqhash[B]
+        for seq in sorted(self._beforesend.keys()):
+            store_result(seq, self._beforesend[seq], self._aftersend[seq], 
+                echo.get(seq, float('inf')), exc.get(seq, float('inf')))
 
-        for seq in sorted(echo.keys()):
-            if seq in exc:
-                rtt = exc[seq] - echo[seq]
-            else:
-                rtt = float('inf')
-            self._add_result({'icmprtt':rtt,'seq':seq})
-            self._num_probes += 1
         fut.set_result(self._num_probes)
 
     def setup(self, metamaster, resultscontainer):
