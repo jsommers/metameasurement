@@ -4,19 +4,22 @@ Try it out
 
 Requires Python 3.6.
 
-A basic recipe for running::
+A basic recipe for running the tool::
 
-    # install a python venv and required modules
+    # Install a python venv and required modules
     python3 -m venv xenv
     source xenv/bin/activate
     pip3 install -r requirements
 
-    # give a test run (may require running as root)
-    # by default, just runs "sleep 5" as the external "measurement" 
-    # process.  it will take ~7/8 seconds to finish.
+    # Give a test run (may require running as root)
+    # By default, the tool runs "sleep 5" as the external "measurement" process, which will take ~7/8 seconds to finish.
     python3 metameasurement.py
 
-    # plot stuff
+    # Tool has the following options
+    -C, --cpu
+            Specifies the desired CPUness
+
+Plotting tool::
     # use -i to plot individial items
     # use -g to plot all items in a group
     # use -a to plot all items in all groups
