@@ -193,28 +193,34 @@ def main():
                         help='Flag to set if Memory monitor is needed.')
     parser.add_argument('-r', '--rttNeeded', dest='rttNeeded', action='store_true',
                         help='Flag to set if RTT monitor is needed.')
+    parser.add_argument('-a', '--loadStart', dest='loadStartNeeded', type=float, default=1.0,
+                        help='Sampling start rate needed.')
+    parser.add_argument('-b', '--loadEnd', dest='loadEndNeeded', type=float, default=1.0,
+                        help='Sampling end rate needed.')
+    parser.add_argument('-t', '--probeTarget', dest='probeRate', type=int, default=2,
+                        help='Target probing rate.')
     args = parser.parse_args()
 
-    if not args.iflist:
+    if args.rttNeeded and not args.iflist:
         print("Must specify at least one interface to monitor")
         parser.print_usage()
         return -1
 
     m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.statusinterval)
     if args.cpuNeeded:
-        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(1.0,1.0)))
+        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
     if args.ioNeeded:
-        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0)))
+        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
     if args.netNeeded:
-        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(1.0,1.0)))
+        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
     if args.memNeeded:
-        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0,2.0)))
+        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
 
     if args.rttNeeded:
         rttsrc = ICMPHopLimitedRTTSource()
         for intf in args.iflist:
             rttsrc.add_port(intf, 'icmp or arp')
-        gparms = get_gamma_params(2) # init target rate, 2 probes/sec
+        gparms = get_gamma_params(args.probeRate) # init target rate, 2 probes/sec
         m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
 
     commandline = "sleep 5"
