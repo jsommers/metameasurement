@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <sys/signal.h>
 #include <time.h>
 #include <string.h>
 #include "wec.h"
@@ -28,7 +29,7 @@ int cpuness_array[CPUNESS_INT_ARRAY_SIZE];
 struct mem_arr_struct memness_array[MEMNESS_INT_ARRAY_SIZE];
 
 /* Piping globals */
-int seed = 23;
+unsigned int seed = 23;
 int p = 0;
 int WILEE_CALIBRATE;
 int CPUNESS_INPUT = 0, MEMNESS_INPUT = 0, LOOPLEN_INPUT = 0;
