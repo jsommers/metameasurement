@@ -61,6 +61,7 @@ A basic recipe for running the tool::
     # Running the tool produces a json file with captured metadata.
 
 Plotting tool::
+
     # Simple tool to plot all the metadata collected.
     # See what metadata can be plotted without any arguments.
     python3 plotmeta.py <json file produced by previous step>
