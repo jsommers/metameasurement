@@ -14,12 +14,14 @@ from sysobservers import *
 VERSION = '2017.1.1'
 
 class MetadataOrchestrator(object):
-    def __init__(self, debug, fileprefix):
+    def __init__(self, debug, quiet, fileprefix, statusinterval=5):
         self._asyncloop = asyncio.SelectorEventLoop()
         asyncio.set_event_loop(self._asyncloop)
         self._asyncloop.add_signal_handler(signal.SIGINT, self._sig_catcher)
         self._asyncloop.add_signal_handler(signal.SIGTERM, self._sig_catcher)
         self._debug = debug
+        self._quiet = quiet
+        self._update_interval = statusinterval
         self._log = logging.getLogger('mm')
         self._monitors = {}
         self._done = False
@@ -30,7 +32,10 @@ class MetadataOrchestrator(object):
 
         logging.basicConfig(format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
 
-        if self._debug:
+        if quiet:
+            logging.basicConfig(level=logging.WARNING)
+            self._log.setLevel(logging.WARNING)
+        elif self._debug:
             logging.basicConfig(level=logging.DEBUG)
             self._log.setLevel(logging.DEBUG)
             self._asyncloop.set_debug(True)
@@ -110,10 +115,18 @@ class MetadataOrchestrator(object):
                                'stdout': output[0].decode('utf8'),
                                'stderr': output[1].decode('utf8')})
 
-
     def _start_tool(self, cmdline):
         asyncio.ensure_future(self._run_tool(cmdline, self._toolfut))
         self._toolfut.add_done_callback(self._shutdown)
+
+    async def _running_status(self):
+        while True:
+            try:
+                await asyncio.sleep(self._update_interval)
+            except asyncio.CancelledError:
+                break
+            idlecpu = self._monitors['cpu'].results.last_result('idle')
+            self._log.info("Idle CPU {}".format(idlecpu))
         
     def run(self, commandline):
         self._starttime = time()
@@ -123,6 +136,9 @@ class MetadataOrchestrator(object):
         self._toolfut = asyncio.Future()
         self._cmdstart = self._asyncloop.call_later(self._warmcooltime, 
             self._start_tool, commandline)
+
+        if not self._quiet:
+            asyncio.ensure_future(self._running_status())
 
         try:
             self._asyncloop.run_forever()
@@ -161,6 +177,12 @@ def main():
                         metavar="INTF_NAME",
                         help='Name of a network interface that should be monitored '
                         '(can be specified multiple times)')
+    parser.add_argument('-q', '--quiet', dest='quiet', action='store_true',
+                        default=False, 
+                        help='Turn off all info (and below) log messages')
+    parser.add_argument('-s', '--status', dest='statusinterval', type=int,
+                        default=5, 
+                        help='Time interval on which to show periodic status while running')
     args = parser.parse_args()
 
     if not args.iflist:
@@ -168,7 +190,7 @@ def main():
         parser.print_usage()
         return -1
 
-    m = MetadataOrchestrator(args.verbose, args.fileprefix)
+    m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.statusinterval)
     m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(1.0,1.0)))
     m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0)))
     m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(1.0,1.0)))
