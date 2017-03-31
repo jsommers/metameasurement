@@ -189,9 +189,9 @@ def main():
                         help='Flag to set if IO monitor is needed.')
     parser.add_argument('-n', '--netstat', dest='netNeeded', action='store_true',
                         help='Flag to set if NET monitor is needed.')
-    parser.add_argument('-m', '--memNeeded', dest='memNeeded', action='store_true',
+    parser.add_argument('-m', '--memory', dest='memNeeded', action='store_true',
                         help='Flag to set if Memory monitor is needed.')
-    parser.add_argument('-r', '--rttNeeded', dest='rttNeeded', action='store_true',
+    parser.add_argument('-r', '--rtt', dest='rttNeeded', action='store_true',
                         help='Flag to set if RTT monitor is needed.')
     parser.add_argument('-a', '--loadStart', dest='loadStartNeeded', type=float, default=1.0,
                         help='Sampling start rate needed.')
@@ -201,7 +201,7 @@ def main():
                         help='Target probing rate.')
     args = parser.parse_args()
 
-    if args.rttNeeded and not args.iflist:
+    if (args.rttNeeded and not args.iflist) or (args.netNeeded and not args.iflist):
         print("Must specify at least one interface to monitor")
         parser.print_usage()
         return -1
