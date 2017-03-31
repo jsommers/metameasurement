@@ -54,8 +54,8 @@ class MetadataOrchestrator(object):
     def _cleanup(self):
         self._asyncloop.stop()
 
-    def _write_meta(self, commandline): 
-        proc = subprocess.run("uname -a", shell=True, 
+    def _write_meta(self, commandline):
+        proc = subprocess.run("uname -a", shell=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         self._metadict['start'] = self._starttime
         self._metadict['end'] = self._endtime
@@ -97,8 +97,8 @@ class MetadataOrchestrator(object):
         self._shutdown(None)
 
     async def _run_tool(self, commandline, future):
-        create = asyncio.create_subprocess_shell(commandline, 
-                                                 stdout=asyncio.subprocess.PIPE,
+        create = asyncio.create_subprocess_shell(commandline, \
+                                                 stdout=asyncio.subprocess.PIPE,\
                                                  stderr=asyncio.subprocess.PIPE)
         try:
             self._toolproc = await create
@@ -107,7 +107,7 @@ class MetadataOrchestrator(object):
         self._log.debug("Measurement tool started with pid {}".format(self._toolproc.pid))
         try:
             # assumes that data to read is not too large
-            output = await self._toolproc.communicate() 
+            output = await self._toolproc.communicate()
         except asyncio.CancelledError:
             return
         if not future.cancelled():
@@ -127,14 +127,14 @@ class MetadataOrchestrator(object):
                 break
             idlecpu = self._monitors['cpu'].results.last_result('idle')
             self._log.info("Idle CPU {}".format(idlecpu))
-        
+
     def run(self, commandline):
         self._starttime = time()
         self._log.info("Starting metadata measurement with verbose {} and commandline <{}>".format(
             self._debug, commandline))
 
         self._toolfut = asyncio.Future()
-        self._cmdstart = self._asyncloop.call_later(self._warmcooltime, 
+        self._cmdstart = self._asyncloop.call_later(self._warmcooltime,
             self._start_tool, commandline)
 
         if not self._quiet:
@@ -150,7 +150,7 @@ class MetadataOrchestrator(object):
 
 def get_gamma_params(probe_rate):
     '''
-    Get Gamma (Erlang) distribution parameters for 
+    Get Gamma (Erlang) distribution parameters for
     probing.  Accepts probe rate (int) as a parameter
     (i.e., target probes to emit per second) and returns
     a tuple to splat into random.gammavariate
@@ -165,7 +165,7 @@ def get_gamma_params(probe_rate):
 def main():
     parser = argparse.ArgumentParser(
             description='Automatic generation of active measurement metadata')
-    parser.add_argument('-d', '-v', '--verbose', '--debug', 
+    parser.add_argument('-d', '-v', '--verbose', '--debug',
                         dest='verbose', action='store_true', default=False,
                         help='Turn on verbose/debug output.')
     parser.add_argument('-f', '--fileprefix', dest='fileprefix', type=str, default='metadata',
@@ -178,11 +178,21 @@ def main():
                         help='Name of a network interface that should be monitored '
                         '(can be specified multiple times)')
     parser.add_argument('-q', '--quiet', dest='quiet', action='store_true',
-                        default=False, 
+                        default=False,
                         help='Turn off all info (and below) log messages')
     parser.add_argument('-s', '--status', dest='statusinterval', type=int,
-                        default=5, 
+                        default=5,
                         help='Time interval on which to show periodic status while running')
+    parser.add_argument('-p', '--cpu', dest='cpuNeeded', action='store_true',
+                        help='Flag to set if CPU monitor is needed.')
+    parser.add_argument('-o', '--io', dest='ioNeeded', action='store_true',
+                        help='Flag to set if IO monitor is needed.')
+    parser.add_argument('-n', '--netstat', dest='netNeeded', action='store_true',
+                        help='Flag to set if NET monitor is needed.')
+    parser.add_argument('-m', '--memNeeded', dest='memNeeded', action='store_true',
+                        help='Flag to set if Memory monitor is needed.')
+    parser.add_argument('-r', '--rttNeeded', dest='rttNeeded', action='store_true',
+                        help='Flag to set if RTT monitor is needed.')
     args = parser.parse_args()
 
     if not args.iflist:
@@ -191,16 +201,21 @@ def main():
         return -1
 
     m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.statusinterval)
-    m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(1.0,1.0)))
-    m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0)))
-    m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(1.0,1.0)))
-    m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0,2.0)))
+    if args.cpuNeeded:
+        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(1.0,1.0)))
+    if args.ioNeeded:
+        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0)))
+    if args.netNeeded:
+        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(1.0,1.0)))
+    if args.memNeeded:
+        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0,2.0)))
 
-    rttsrc = ICMPHopLimitedRTTSource()
-    for intf in args.iflist:
-        rttsrc.add_port(intf, 'icmp or arp')
-    gparms = get_gamma_params(2) # init target rate, 2 probes/sec
-    m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
+    if args.rttNeeded:
+        rttsrc = ICMPHopLimitedRTTSource()
+        for intf in args.iflist:
+            rttsrc.add_port(intf, 'icmp or arp')
+        gparms = get_gamma_params(2) # init target rate, 2 probes/sec
+        m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
 
     commandline = "sleep 5"
     m.run(args.commandline)
