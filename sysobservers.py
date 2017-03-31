@@ -109,17 +109,15 @@ class ICMPHopLimitedRTTSource(DataSource):
 
     def add_port(self, ifname, filterstr=''):
         p = pcapffi.PcapLiveDevice.create(ifname)
-        p.snaplen = 80
+        p.snaplen = 128
         p.set_promiscuous(True)
-        p.set_timeout(1)
+        p.set_timeout(100)
 
         # choose the "best" timestamp available:
         # highest number up to 3 (don't use unsynced adapter stamps)
 
-        stamptypes = p.list_tstamp_types()
+        stamptypes = [ t for t in p.list_tstamp_types() if t <= pcapffi.PcapTstampType.Adapter ]
         if len(stamptypes):
-            if pcapffi.PcapTstampType.AdapterUnsync in stamptypes:
-                stamptypes.remove(pcapffi.PcapTstampType.AdapterUnsync)
             beststamp = max(stamptypes)
             try:
                 p.set_tstamp_type(beststamp)
