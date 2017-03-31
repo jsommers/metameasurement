@@ -91,7 +91,7 @@ class ICMPHopLimitedRTTSource(DataSource):
         self._dest = dest # by default, direct toward GOOG public DNS anycast
         self._numhops = numhops
         self._icmpseq = 1
-        self._arp_cache = {}
+        self._arp_cache = read_system_arp_cache()
         self._arp_queue = asyncio.Queue()
         self._icmp_queue = asyncio.Queue()
         self._ports = {}
@@ -216,15 +216,18 @@ class ICMPHopLimitedRTTSource(DataSource):
                 ethaddr,ipaddr = await self._arp_queue.get()
             except asyncio.CancelledError:
                 break
-            self._arp_cache[ipaddr] = ethaddr
+            self._arp_cache[str(ipaddr)] = ethaddr
             if ipaddr == dst:
                 break
         return ethaddr
 
     async def _emiticmp(self, dst):
-        nh = self._routes[dst]
         try:
-            ethaddr = await self._do_arp(nh.nexthop, nh.interface)
+            nh = self._routes[dst]
+        except KeyError:
+            raise RuntimeException("No route to destination {} for network monitoring".format(dst))
+        try:
+            ethaddr = await self._do_arp(str(nh.nexthop), nh.interface)
         except asyncio.CancelledError:
             return
         thisintf = self._ifinfo[nh.interface]

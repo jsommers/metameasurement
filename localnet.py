@@ -13,7 +13,8 @@ from switchyard.lib.address import *
 
 from psutil import net_if_addrs
 
-__all__ = ['NextHop', 'InterfaceInfo', 'get_interface_info', 'get_routes']
+__all__ = ['NextHop', 'InterfaceInfo', 'get_interface_info', 'get_routes', \
+    'read_system_arp_cache']
 
 
 class NextHop(object):
@@ -66,6 +67,19 @@ class InterfaceInfo(object):
     def name(self):
         return self._ifname
 
+
+def read_system_arp_cache():
+    arp_map = {}
+    cmd = "/usr/sbin/arp -na"
+    s = check_output(cmd, shell=True, universal_newlines=True)
+    ethip = re.compile(r'(?P<ip>(\d{1,3}\.){3}\d{1,3})[\)\s\w]+ (?P<eth>([a-fA-F0-9]{1,2}:){5}[a-fA-F0-9]{1,2})')
+    for line in s.split('\n'):
+        mobj = ethip.search(line)
+        if mobj:
+            # print(mobj.group('ip'), mobj.group('eth'))
+            arp_map[mobj.group('ip')] = mobj.group('eth')
+    return arp_map
+        
 
 def get_interface_info(ifname_list):
     def assemble_devinfo(pcapdev):
@@ -208,3 +222,6 @@ if __name__ == '__main__':
     for dst in routes:
         ii = routes[dst]
         print("{}: {}".format(dst, ii))
+
+    d = load_system_arp_cache()
+    print(d)
