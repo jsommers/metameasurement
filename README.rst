@@ -4,32 +4,82 @@ Try it out
 
 Requires Python 3.6.
 
-A basic recipe for running::
+A basic recipe for running the tool::
 
-    # install a python venv and required modules
+    # Install a python venv and required modules
     python3 -m venv xenv
     source xenv/bin/activate
     pip3 install -r requirements
 
-    # give a test run (may require running as root)
-    # by default, just runs "sleep 5" as the external "measurement" 
-    # process.  it will take ~7/8 seconds to finish.
+    # Give a test run (may require running as root)
+    # By default, the tool runs "sleep 5" as the external "measurement" process.
+    # This which will take ~7/8 seconds to finish.
     python3 metameasurement.py
 
-    # plot stuff
-    # use -i to plot individial items
-    # use -g to plot all items in a group
-    # use -a to plot all items in all groups
-    # see what metadata can be plotted without any arguments
+    # Tool has the following options
+    -d, -v, --verbose, --debug
+            Turn on verbose/debug output.
+    -f, --fileprefix
+            Prefix for filename that includes metadata for a given run.
+    -c, --command
+            The full command line for running an active measurement tool. 
+            Command should be enclosed within quotes (e.g., "ping -c 1 test.com")
+    -i, --interface
+            Name of a network interface that should be monitored.
+            Multiple interfaces can be specified (e.g., -i intf_1 -i inft_2).
+            Mandatory argument if -r/--rtt or -n/--netstat (below) is used.
+    -s, --status
+            Time interval on which to show periodic status while running.
+    -q, --quiet
+            Turn off all info, log and status messages.
+    -p, --cpu
+            Flag to set if CPU monitor is needed.
+    -o, --io
+            Flag to set if IO monitor is needed.
+    -n, --netstat
+            Flag to set if Netstat monitor is needed.
+    -m, --memory
+            Flag to set if Memory monitor is needed.
+    -r, --rtt
+            Flag to set if RTT monitor is needed.
+    -a, --loadStart
+            Start value for choosing a sampling rate.
+    -b, --loadEnd
+            End value for choosing a sampling rate.
+    -t, --probeTarget
+            Probing rate needed. Default is 2 probes/second.
+
+    # Examples
+    # Use a different external measurement tool
+    python3 metameasurement.py -c "ping -c 100 www.google.com" 
+    # Monitor CPU only for traceroute
+    python3 metameasurement.py -p -c "traceroute www.google.com" 
+    # Monitor IO and Net only for ping
+    python3 metameasurement.py -o -n -i en0 -c "ping www.google.com" 
+
+    # Output
+    # Running the tool produces a json file with captured metadata.
+
+Plotting tool::
+
+    # Simple tool to plot all the metadata collected.
+    # See what metadata can be plotted without any arguments.
+    python3 plotmeta.py <json file produced by previous step>
+
+    # Tool has the following options
+    -i, --item
+            Include individual item in the plot, e.g., monitors:cpu:idle.
+    -g, --group
+            Include a group of items in the plot, e.g., rtt includes icmprtt and seq/
+    -a, --all
+            Plot all groups in separate subplots.
+
+    # Examples
     python3 plotmeta.py -i monitors:rtt:icmprtt -i monitors:rtt:seq -i monitors:cpu:idle <json file produced by previous step>
     python3 plotmeta.py -g rtt <json file produced by previous step>
     python3 plotmeta.py -a <json file produced by previous step>
-    python3 plotmeta.py <json file produced by previous step>
 
-    # use a different external measurement tool
-    python3 metameasurement.py -c "ping -c 100 www.google.com" 
-
-For generating artificial load::
+Generating artificial load::
 
     # loadmeta.py can be used to generate artificial CPU, RAM, disk and network loads
     # CPU and RAM loads are generated using wileE benchmark
