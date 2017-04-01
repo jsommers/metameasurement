@@ -48,11 +48,12 @@ def main(args):
         for _ in itertools.repeat(None, args.ontime):
             val = None
             if args.dist=="gamma":
-                val = get_gamma(2)
-            if args.dist=="exponential":
-                val = get_exponential(2)
+                val = get_gamma(3)
                 print (val)
-            # callLoader(val, args)
+            if args.dist=="exponential":
+                val = get_exponential(3)
+                print (val)
+            callLoader(val, args)
             sleep(1)
         sleep(args.offtime)
 
