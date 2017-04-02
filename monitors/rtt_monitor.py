@@ -7,6 +7,8 @@ import functools
 import os
 from enum import Enum
 
+from psutil import net_if_stats
+
 from monitor_base import DataSource, SystemObserver, _gamma_observer
 
 from switchyard.lib.userlib import *
@@ -269,8 +271,16 @@ class ICMPHopLimitedRTTSource(DataSource):
 
 
 def create(config):
-    i = ICMPHopLimitedRTTSource()
     if not 'interface' in config:
         raise RuntimeError("RTT monitor must have interface configured for it")
-    i.add_port(config.pop('interface'), 'icmp or arp')
-    return SystemObserver(i, _gamma_observer(configdict.get('proberate', 1)))
+    interface = config.pop('interface')
+
+    validiface = list(net_if_stats().keys())
+    if interface not in net_if_stats().keys():
+        raise RuntimeError("Invalid interface name (valid names: {})".format(','.join(validiface)))
+
+    dest = config.pop('dest', '8.8.8.8')
+
+    i = ICMPHopLimitedRTTSource(interface, dest=dest)
+    i.add_port(interface, 'icmp or arp')
+    return SystemObserver(i, _gamma_observer(config.get('rate', 1)))

@@ -25,6 +25,7 @@ def _gamma_observer(probe_rate):
     (i.e., target probes to emit per second) and returns
     a tuple to splat into random.gammavariate
     '''
+    probe_rate = float(probe_rate)
     shape = 4 # fixed integral shape 4-16; see SIGCOMM 06 and IMC 07 papers
     desired_mean = 1/probe_rate
     desired_scale = shape/desired_mean

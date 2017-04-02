@@ -215,10 +215,6 @@ def main():
                              'measurement tool (note that the command line '
                              'almost certainly needs to be quoted). '
                              'default="sleep 5".')
-    parser.add_argument('-i', '--interface', dest='iflist', action='append',
-                        metavar="INTF_NAME",
-                        help='Name of a network interface that should be '
-                             'monitored (can be specified multiple times)')
     parser.add_argument('-q', '--quiet', dest='quiet', action='store_true',
                         default=False,
                         help='Turn off all info (and below) log messages')
@@ -226,36 +222,12 @@ def main():
                         default=5,
                         help='Time interval on which to show periodic '
                              'status while running.  default=5 sec.')
-
     parser.add_argument('-M', '--monitor', dest='monitors', 
                         type=_check_monitor_arg,
                         action='append',
-                        help='Select monitors to include.  Default=None.')
-
-#    parser.add_argument('-p', '--cpu', dest='cpuNeeded', action='store_true',
-#                        help='Flag to set if CPU monitor is needed.')
-#    parser.add_argument('-o', '--io', dest='ioNeeded', action='store_true',
-#                        help='Flag to set if IO monitor is needed.')
-#    parser.add_argument('-n', '--netstat', dest='netNeeded', action='store_true',
-#                        help='Flag to set if NET monitor is needed.')
-#    parser.add_argument('-m', '--memory', dest='memNeeded', action='store_true',
-#                        help='Flag to set if Memory monitor is needed.')
-#    parser.add_argument('-r', '--rtt', dest='rttNeeded', action='store_true',
-#                        help='Flag to set if RTT monitor is needed.')
-
-    parser.add_argument('-s', '--sampleinterval', dest='sampleint', 
-                        type=float, default=1.0, metavar='SAMPLEINTERVAL',
-                        help='Periodic sampling interval for all monitors '
-                             'except RTT monitor.  default=1 sec.')
-#    parser.add_argument('-t', '--probeTarget', dest='probeRate', type=float, 
-#                        default=2,
-#                        help='Target probing rate (default=2/sec).')
+                        help='Select monitors to include.  Default=None. '
+                        'Valid monitors={}'.format(','.join(monlist)))
     args = parser.parse_args()
-
-#    if (args.rttNeeded and not args.iflist) or (args.netNeeded and not args.iflist):
-#        print("Must specify at least one interface to monitor")
-#        parser.print_usage()
-#        return -1
 
     m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.logfile, args.statusinterval)
     if not args.monitors:
@@ -267,23 +239,6 @@ def main():
     for monname,monconfig in args.monitors:
         m.add_monitor(monname, _load_monitor(monname, monconfig))
 
-#    if args.cpuNeeded:
-#        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
-#    if args.ioNeeded:
-#        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
-#    if args.netNeeded:
-#        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(args.sampleint, args.sampleint)))
-#    if args.memNeeded:
-#        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
-#
-#    if args.rttNeeded:
-#        rttsrc = ICMPHopLimitedRTTSource()
-#        for intf in args.iflist:
-#            rttsrc.add_port(intf, 'icmp or arp')
-#        gparms = get_gamma_params(args.probeRate) # init target rate, 2 probes/sec
-#        m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
-
-    commandline = "sleep 5"
     m.run(args.commandline)
 
 if __name__ == '__main__':

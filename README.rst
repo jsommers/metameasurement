@@ -21,41 +21,54 @@ A basic recipe for running the tool::
             Turn on verbose/debug output.
     -f, --fileprefix
             Prefix for filename that includes metadata for a given run.
+    -l, --logfile
+            Send log messages to a file (instead of stdout).
     -c, --command
             The full command line for running an active measurement tool. 
             Command should be enclosed within quotes (e.g., "ping -c 1 test.com")
-    -i, --interface
-            Name of a network interface that should be monitored.
-            Multiple interfaces can be specified (e.g., -i intf_1 -i inft_2).
-            Mandatory argument if -r/--rtt or -n/--netstat (below) is used.
-    -s, --status
+    -u, --statusinterval
             Time interval on which to show periodic status while running.
     -q, --quiet
             Turn off all info, log and status messages.
-    -p, --cpu
-            Flag to set if CPU monitor is needed.
-    -o, --io
-            Flag to set if IO monitor is needed.
-    -n, --netstat
-            Flag to set if Netstat monitor is needed.
-    -m, --memory
-            Flag to set if Memory monitor is needed.
-    -r, --rtt
-            Flag to set if RTT monitor is needed.
-    -a, --loadStart
-            Start value for choosing a sampling rate.
-    -b, --loadEnd
-            End value for choosing a sampling rate.
-    -t, --probeTarget
-            Probing rate needed. Default is 2 probes/second.
+    -M, --monitor
+            Add a metadata monitoring source.
+            Standard available sources include cpu,mem,io,netstat,rtt
+              (see monitors/ directory)
+
+            To configure a monitor, parameters may be specified along
+            with each monitor name, each separated by a colon (':').
+            Each parameter may be a single string, or a key=value.
+            The order of parameters doesn't matter.
+
+            Valid parameters for each standard monitor are:
+
+                -M cpu:interval=X  --- set the periodic sampling interval
+                                       (default = 1sec)
+                -M io:interval=X   --- set the periodic sampling interval.
+                -M mem:interval=X  --- set the periodic sampling interval.
+                -M netstat:interval=X  
+                                   --- set the periodic sampling interval.
+                           Additional string arguments to the netstat monitor
+                           can specify interface names to monitor (all
+                           interfaces are included if none are specified).
+                           For example, to monitor en0's netstat counters
+                           every 5 seconds:
+                           -M netstat:interval=5:en0
+                -M rtt:interface=IfaceName:rate=R:dest=D
+                           Monitor RTT along a path to destination D 
+                           out of interface IfaceName with probe rate R.
+                           Probe interval is gamma distributed.
+                           Default dest = 8.8.8.8.
+                           Default rate = 1/sec.
+
 
     # Examples
     # Use a different external measurement tool
-    python3 metameasurement.py -c "ping -c 100 www.google.com" 
+    python3 metameasurement.py -Mcpu "ping -c 100 www.google.com" 
     # Monitor CPU only for traceroute
-    python3 metameasurement.py -p -c "traceroute www.google.com" 
-    # Monitor IO and Net only for ping
-    python3 metameasurement.py -o -n -i en0 -c "ping www.google.com" 
+    python3 metameasurement.py -Mcpu "traceroute www.google.com" 
+    # Monitor IO and Netstat counters only for ping
+    python3 metameasurement.py -Mio -Mnetstat -c "ping www.google.com" 
 
     # Output
     # Running the tool produces a json file with captured metadata.
