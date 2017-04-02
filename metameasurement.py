@@ -187,12 +187,10 @@ def _check_monitor_arg(s):
             parmdict[m] = True
     return (monarg[0], parmdict)
 
-
 def _load_monitor(mname, mconfig):
     sys.path.append(os.path.abspath('monitors'))
     m = importlib.__import__("{}_monitor".format(mname))
     return m.create(mconfig)
-
 
 def main():
     parser = argparse.ArgumentParser(
