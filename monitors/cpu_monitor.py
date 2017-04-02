@@ -1,5 +1,5 @@
 from psutil import cpu_times_percent
-from monitor_base import DataSource
+from monitor_base import DataSource, SystemObserver, _periodic_observer
 
 class CPUDataSource(DataSource):
     '''
@@ -16,3 +16,5 @@ class CPUDataSource(DataSource):
         return { k:getattr(sample,k) for k in self._keys }
 
 
+def create(configdict):
+    return SystemObserver(CPUDataSource(), _periodic_observer(configdict.get('interval', 1)))

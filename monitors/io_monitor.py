@@ -1,5 +1,5 @@
 from psutil import disk_io_counters
-from monitor_base import DataSource, _compute_diff_with_wrap
+from monitor_base import SystemObserver, DataSource, _compute_diff_with_wrap, _periodic_observer
 
 class IODataSource(DataSource):
     '''
@@ -23,4 +23,10 @@ class IODataSource(DataSource):
         }
         self._lastsample = sample
         return rd
+
+
+def create(config):
+    # could pass in list of devices that we want to monitor.
+    # for now, just monitor all
+    return SystemObserver(IODataSource(), _periodic_observer(config.get('interval', 1)))
 

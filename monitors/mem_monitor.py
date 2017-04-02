@@ -1,5 +1,5 @@
 from psutil import virtual_memory
-from monitor_base import DataSource
+from monitor_base import DataSource, _periodic_observer, SystemObserver
 
 class MemoryDataSource(DataSource):
     '''
@@ -16,3 +16,5 @@ class MemoryDataSource(DataSource):
         return dict([ (k,getattr(sample,k)) for k in self._keys ]) 
 
 
+def create(config):
+    return SystemObserver(MemoryDataSource(), _periodic_observer(config.get('interval', 1)))

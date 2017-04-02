@@ -7,6 +7,8 @@ import functools
 import os
 from enum import Enum
 
+from monitor_base import DataSource, SystemObserver, _gamma_observer
+
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
 from localnet import *
@@ -38,7 +40,7 @@ class ICMPHopLimitedRTTSource(DataSource):
     Monitor RTTs to some number of hops using ICMP echo requests with low
     TTLs.  Uses Switchyard libraries to handle packet construction/emission/reception.
     '''
-    def __init__(self, numhops=1, dest="8.8.8.8"):
+    def __init__(self, interface, numhops=1, dest="8.8.8.8"):
         DataSource.__init__(self)
         self._dest = dest # by default, direct toward GOOG public DNS anycast
         self._numhops = numhops
@@ -265,3 +267,10 @@ class ICMPHopLimitedRTTSource(DataSource):
                 'total_probes_emitted': self._num_probes,
             })
 
+
+def create(config):
+    i = ICMPHopLimitedRTTSource()
+    if not 'interface' in config:
+        raise RuntimeError("RTT monitor must have interface configured for it")
+    i.add_port(config.pop('interface'), 'icmp or arp')
+    return SystemObserver(i, _gamma_observer(configdict.get('proberate', 1)))

@@ -1,6 +1,8 @@
 import sys
 import asyncio
 import signal
+import os
+import re
 from time import time, strftime, gmtime
 import logging
 from statistics import mean, stdev
@@ -8,8 +10,7 @@ import argparse
 import subprocess
 import json
 import random
-
-from sysobservers import *
+import importlib
 
 VERSION = '2017.4.1'
 
@@ -161,19 +162,37 @@ class MetadataOrchestrator(object):
         self._endtime = time()
         self._write_meta(commandline)
 
-def get_gamma_params(probe_rate):
-    '''
-    Get Gamma (Erlang) distribution parameters for
-    probing.  Accepts probe rate (int) as a parameter
-    (i.e., target probes to emit per second) and returns
-    a tuple to splat into random.gammavariate
-    '''
-    shape = 4 # fixed integral shape 4-16; see SIGCOMM 06 and IMC 07 papers
-    desired_mean = 1/probe_rate
-    desired_scale = shape/desired_mean
-    #print("desired scale",desired_scale)
-    #print("xlambda",1/desired_scale)
-    return shape,1/desired_scale
+def _probe_monitors():
+    monlist = []
+    for m in os.listdir('monitors'):
+        mobj = re.match('(?P<mon>\w+)_monitor.py', m)
+        if mobj:
+            monlist.append(mobj.group('mon'))
+    return monlist
+
+monlist = _probe_monitors()
+
+def _check_monitor_arg(s):
+    monarg = s.split(':')
+    if not monarg or monarg[0] not in monlist:
+        msg = "{} does not start with a valid monitor name (followed by an optional : and configuration arguments).  ".format(s)
+        msg += "Valid monitor names are: {}".format(','.join(monlist))
+        raise argparse.ArgumentTypeError(msg)
+    parmdict = {}
+    for m in monarg[1:]:
+        if '=' in m:
+            k,v = m.split('=')
+            parmdict[k] = v
+        else:
+            parmdict[m] = True
+    return (monarg[0], parmdict)
+
+
+def _load_monitor(mname, mconfig):
+    sys.path.append(os.path.abspath('monitors'))
+    m = importlib.__import__("{}_monitor".format(mname))
+    return m.create(mconfig)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -208,52 +227,63 @@ def main():
                         help='Time interval on which to show periodic '
                              'status while running.  default=5 sec.')
 
-    parser.add_argument('-p', '--cpu', dest='cpuNeeded', action='store_true',
-                        help='Flag to set if CPU monitor is needed.')
-    parser.add_argument('-o', '--io', dest='ioNeeded', action='store_true',
-                        help='Flag to set if IO monitor is needed.')
-    parser.add_argument('-n', '--netstat', dest='netNeeded', action='store_true',
-                        help='Flag to set if NET monitor is needed.')
-    parser.add_argument('-m', '--memory', dest='memNeeded', action='store_true',
-                        help='Flag to set if Memory monitor is needed.')
-    parser.add_argument('-r', '--rtt', dest='rttNeeded', action='store_true',
-                        help='Flag to set if RTT monitor is needed.')
+    parser.add_argument('-M', '--monitor', dest='monitors', 
+                        type=_check_monitor_arg,
+                        action='append',
+                        help='Select monitors to include.  Default=None.')
+
+#    parser.add_argument('-p', '--cpu', dest='cpuNeeded', action='store_true',
+#                        help='Flag to set if CPU monitor is needed.')
+#    parser.add_argument('-o', '--io', dest='ioNeeded', action='store_true',
+#                        help='Flag to set if IO monitor is needed.')
+#    parser.add_argument('-n', '--netstat', dest='netNeeded', action='store_true',
+#                        help='Flag to set if NET monitor is needed.')
+#    parser.add_argument('-m', '--memory', dest='memNeeded', action='store_true',
+#                        help='Flag to set if Memory monitor is needed.')
+#    parser.add_argument('-r', '--rtt', dest='rttNeeded', action='store_true',
+#                        help='Flag to set if RTT monitor is needed.')
 
     parser.add_argument('-s', '--sampleinterval', dest='sampleint', 
                         type=float, default=1.0, metavar='SAMPLEINTERVAL',
                         help='Periodic sampling interval for all monitors '
                              'except RTT monitor.  default=1 sec.')
-    parser.add_argument('-t', '--probeTarget', dest='probeRate', type=float, 
-                        default=2,
-                        help='Target probing rate (default=2/sec).')
+#    parser.add_argument('-t', '--probeTarget', dest='probeRate', type=float, 
+#                        default=2,
+#                        help='Target probing rate (default=2/sec).')
     args = parser.parse_args()
 
-    if (args.rttNeeded and not args.iflist) or (args.netNeeded and not args.iflist):
-        print("Must specify at least one interface to monitor")
-        parser.print_usage()
-        return -1
+#    if (args.rttNeeded and not args.iflist) or (args.netNeeded and not args.iflist):
+#        print("Must specify at least one interface to monitor")
+#        parser.print_usage()
+#        return -1
 
     m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.logfile, args.statusinterval)
-    if args.cpuNeeded:
-        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
-    if args.ioNeeded:
-        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
-    if args.netNeeded:
-        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(args.sampleint, args.sampleint)))
-    if args.memNeeded:
-        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
+    if not args.monitors:
+        print("No monitors configured.  Must specify at least one -M option.", file=sys.stderr)
+        print("Valid monitors: {}\n".format(','.join(monlist)))
+        parser.print_usage()
+        return
 
-    if args.rttNeeded:
-        rttsrc = ICMPHopLimitedRTTSource()
-        for intf in args.iflist:
-            rttsrc.add_port(intf, 'icmp or arp')
-        gparms = get_gamma_params(args.probeRate) # init target rate, 2 probes/sec
-        m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
+    for monname,monconfig in args.monitors:
+        m.add_monitor(monname, _load_monitor(monname, monconfig))
+
+#    if args.cpuNeeded:
+#        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
+#    if args.ioNeeded:
+#        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
+#    if args.netNeeded:
+#        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(args.sampleint, args.sampleint)))
+#    if args.memNeeded:
+#        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
+#
+#    if args.rttNeeded:
+#        rttsrc = ICMPHopLimitedRTTSource()
+#        for intf in args.iflist:
+#            rttsrc.add_port(intf, 'icmp or arp')
+#        gparms = get_gamma_params(args.probeRate) # init target rate, 2 probes/sec
+#        m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
 
     commandline = "sleep 5"
-    if not m.monitors:
-        print("No monitors configured, so I'm not starting.", file=sys.stderr)
-        return
     m.run(args.commandline)
 
 if __name__ == '__main__':

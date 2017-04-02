@@ -14,6 +14,24 @@ from enum import Enum
 
 from numpy import min_scalar_type, iinfo
 
+def _periodic_observer(interval):
+    interval = float(interval)
+    return lambda: random.uniform(interval, interval)
+
+def _gamma_observer(probe_rate):
+    '''
+    Get Gamma (Erlang) distribution parameters for
+    probing.  Accepts probe rate (int) as a parameter
+    (i.e., target probes to emit per second) and returns
+    a tuple to splat into random.gammavariate
+    '''
+    shape = 4 # fixed integral shape 4-16; see SIGCOMM 06 and IMC 07 papers
+    desired_mean = 1/probe_rate
+    desired_scale = shape/desired_mean
+    #print("desired scale",desired_scale)
+    #print("xlambda",1/desired_scale)
+    return lambda: random.gammavariate(shape,1/desired_scale)
+
 def _compute_diff_with_wrap(curr, last):
     '''
     Correctly handle computing differences on counters that have

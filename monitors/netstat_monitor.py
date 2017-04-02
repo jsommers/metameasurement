@@ -1,5 +1,6 @@
 from psutil import net_io_counters
-from monitor_base import DataSource, _compute_diff_with_wrap
+from monitor_base import DataSource, SystemObserver, \
+    _compute_diff_with_wrap, _periodic_observer
 
 
 class NetIfDataSource(DataSource):
@@ -13,7 +14,7 @@ class NetIfDataSource(DataSource):
         DataSource.__init__(self)
         x = self._lastsample = net_io_counters(pernic=True) # as per psutil docs: first call will give rubbish 
         if not nics_of_interest:
-            self._nics = x.keys()
+            self._nics = list(x.keys())
         else:
             self._nics = [ n for n in x.keys() if n in nics_of_interest ]
         d1 = list(self._nics)[0]
@@ -28,3 +29,11 @@ class NetIfDataSource(DataSource):
                     for k in self._keys for n in self._nics
         }
         return rd
+
+def create(config):
+    interval = config.pop('interval', 1)
+    if config:
+        source = NetIfDataSource(*list(config.keys()))
+    else:
+        source = NetIfDataSource()
+    return SystemObserver(source, _periodic_observer(interval))
