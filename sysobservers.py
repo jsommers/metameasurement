@@ -110,7 +110,6 @@ class ICMPHopLimitedRTTSource(DataSource):
         self._seqhash = { ICMPType.EchoRequest: {},
                           ICMPType.TimeExceeded: {} }
         self._beforesend = {}
-        self._aftersend = {}
         asyncio.ensure_future(self._ping_collector(self._monfut))
 
     def add_port(self, ifname, filterstr=''):
@@ -257,13 +256,12 @@ class ICMPHopLimitedRTTSource(DataSource):
             self._icmpseq = 1
         self._beforesend[seq] = time()
         self._send_packet(nh.interface, pkt)
-        self._aftersend[seq] = time()
 
     async def _ping_collector(self, fut):
-        def store_result(seq, beforesend, aftersend, pcapsend, pcaprecv):
+        def store_result(seq, beforesend, pcapsend, pcaprecv):
             icmprtt = pcaprecv - pcapsend
-            self._add_result({'icmprtt':icmprtt,'seq':seq,'recv':pcaprecv,'usersend1':beforesend,
-                'usersend2':aftersend,'pcapsend':pcapsend})
+            self._add_result({'icmprtt':icmprtt,'seq':seq,'recv':pcaprecv,
+                'usersend':beforesend, 'pcapsend':pcapsend})
             self._num_probes += 1
 
 
@@ -284,7 +282,7 @@ class ICMPHopLimitedRTTSource(DataSource):
             xhash[seq] = ts
 
         for seq in sorted(self._beforesend.keys()):
-            store_result(seq, self._beforesend[seq], self._aftersend[seq], 
+            store_result(seq, self._beforesend[seq], 
                 echo.get(seq, float('inf')), exc.get(seq, float('inf')))
 
         fut.set_result(self._num_probes)

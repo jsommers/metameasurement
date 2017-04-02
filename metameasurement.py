@@ -11,10 +11,11 @@ import random
 
 from sysobservers import *
 
-VERSION = '2017.1.1'
+VERSION = '2017.4.1'
 
 class MetadataOrchestrator(object):
-    def __init__(self, debug, quiet, fileprefix, statusinterval=5):
+    def __init__(self, debug, quiet, fileprefix, 
+                 logfile=False, statusinterval=5):
         self._asyncloop = asyncio.SelectorEventLoop()
         asyncio.set_event_loop(self._asyncloop)
         self._asyncloop.add_signal_handler(signal.SIGINT, self._sig_catcher)
@@ -28,20 +29,28 @@ class MetadataOrchestrator(object):
         self._warmcooltime = 2
         self._fileprefix = fileprefix
         self._toolproc = None
+        self._starttime = time()
         self._metadict = {}
 
-        logging.basicConfig(format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
+        logconfig = {
+            'format':'%(asctime)s | %(name)s | %(levelname)s | %(message)s',
+            'level':logging.INFO,
+        }
 
         if quiet:
-            logging.basicConfig(level=logging.WARNING)
+            logconfig['level'] = logging.WARNING
             self._log.setLevel(logging.WARNING)
         elif self._debug:
-            logging.basicConfig(level=logging.DEBUG)
-            self._log.setLevel(logging.DEBUG)
+            logconfig['level'] = logging.DEBUG
             self._asyncloop.set_debug(True)
         else:
             self._log.setLevel(logging.INFO)
-            logging.basicConfig(level=logging.INFO)
+
+        if logfile:
+            logconfig['filename'] = self._make_filebase() + '.log'
+            logconfig['filemode'] = 'w'
+            
+        logging.basicConfig(**logconfig)
 
     def add_metadata(self, key, obj):
         self._metadict[key] = obj
@@ -50,6 +59,10 @@ class MetadataOrchestrator(object):
         self._monitors[name] = sysobserver
         sysobserver.setup(self)
         asyncio.ensure_future(sysobserver())
+
+    @property
+    def monitors(self):
+        return list(self._monitors.keys())
 
     def _cleanup(self):
         self._asyncloop.stop()
@@ -74,11 +87,12 @@ class MetadataOrchestrator(object):
             self._metadict['monitors'][k] = m.results.all()
             self._log.info("Monitor summary {}: {}".format(k, m.results.summary(mean)))
 
-        timestr = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
-        filebase = "{}_{}".format(self._fileprefix, timestr)
-
-        with open("{}.json".format(filebase), 'w') as outfile:
+        with open("{}.json".format(self._make_filebase()), 'w') as outfile:
             json.dump(self._metadict, outfile)
+
+    def _make_filebase(self):
+        timestr = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
+        return "{}_{}".format(self._fileprefix, timestr)
 
     def _shutdown(self, future):
         self._log.debug("tool done; shutting down")
@@ -129,7 +143,6 @@ class MetadataOrchestrator(object):
             self._log.info("Idle CPU {}".format(idlecpu))
 
     def run(self, commandline):
-        self._starttime = time()
         self._log.info("Starting metadata measurement with verbose {} and commandline <{}>".format(
             self._debug, commandline))
 
@@ -137,7 +150,7 @@ class MetadataOrchestrator(object):
         self._cmdstart = self._asyncloop.call_later(self._warmcooltime,
             self._start_tool, commandline)
 
-        if not self._quiet:
+        if not self._quiet and 'cpu' in self._monitors:
             asyncio.ensure_future(self._running_status())
 
         try:
@@ -168,21 +181,33 @@ def main():
     parser.add_argument('-d', '-v', '--verbose', '--debug',
                         dest='verbose', action='store_true', default=False,
                         help='Turn on verbose/debug output.')
-    parser.add_argument('-f', '--fileprefix', dest='fileprefix', type=str, default='metadata',
-                        help='Prefix for filename that includes metadata for a given run.')
-    parser.add_argument('-c', '--command', dest='commandline', type=str, default='sleep 5',
-                        help='The full command line for running an active measurement tool'
-                             ' (note that the command line almost certainly needs to be quoted)')
+    parser.add_argument('-f', '--fileprefix', dest='fileprefix', type=str, 
+                        default='metadata', metavar='FILE_PREFIX',
+                        help='Prefix for filename that includes metadata for '
+                             'a given run.  default="metadata".')
+    parser.add_argument('-l', '--logfile', dest='logfile', default=False,
+                        action='store_true', 
+                        help='Write log entries to a file (with a similar '
+                             'file name as metadata).  '
+                             'default=only write to stdout.')
+    parser.add_argument('-c', '--command', dest='commandline', 
+                        type=str, default='sleep 5',
+                        help='The full command line for running an active '
+                             'measurement tool (note that the command line '
+                             'almost certainly needs to be quoted). '
+                             'default="sleep 5".')
     parser.add_argument('-i', '--interface', dest='iflist', action='append',
                         metavar="INTF_NAME",
-                        help='Name of a network interface that should be monitored '
-                        '(can be specified multiple times)')
+                        help='Name of a network interface that should be '
+                             'monitored (can be specified multiple times)')
     parser.add_argument('-q', '--quiet', dest='quiet', action='store_true',
                         default=False,
                         help='Turn off all info (and below) log messages')
-    parser.add_argument('-s', '--status', dest='statusinterval', type=int,
+    parser.add_argument('-u', '--status', dest='statusinterval', type=int,
                         default=5,
-                        help='Time interval on which to show periodic status while running')
+                        help='Time interval on which to show periodic '
+                             'status while running.  default=5 sec.')
+
     parser.add_argument('-p', '--cpu', dest='cpuNeeded', action='store_true',
                         help='Flag to set if CPU monitor is needed.')
     parser.add_argument('-o', '--io', dest='ioNeeded', action='store_true',
@@ -193,12 +218,14 @@ def main():
                         help='Flag to set if Memory monitor is needed.')
     parser.add_argument('-r', '--rtt', dest='rttNeeded', action='store_true',
                         help='Flag to set if RTT monitor is needed.')
-    parser.add_argument('-a', '--loadStart', dest='loadStartNeeded', type=float, default=1.0,
-                        help='Sampling start rate needed.')
-    parser.add_argument('-b', '--loadEnd', dest='loadEndNeeded', type=float, default=1.0,
-                        help='Sampling end rate needed.')
-    parser.add_argument('-t', '--probeTarget', dest='probeRate', type=int, default=2,
-                        help='Target probing rate.')
+
+    parser.add_argument('-s', '--sampleinterval', dest='sampleint', 
+                        type=float, default=1.0, metavar='SAMPLEINTERVAL',
+                        help='Periodic sampling interval for all monitors '
+                             'except RTT monitor.  default=1 sec.')
+    parser.add_argument('-t', '--probeTarget', dest='probeRate', type=float, 
+                        default=2,
+                        help='Target probing rate (default=2/sec).')
     args = parser.parse_args()
 
     if (args.rttNeeded and not args.iflist) or (args.netNeeded and not args.iflist):
@@ -206,15 +233,15 @@ def main():
         parser.print_usage()
         return -1
 
-    m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.statusinterval)
+    m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.logfile, args.statusinterval)
     if args.cpuNeeded:
-        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
+        m.add_monitor('cpu', SystemObserver(CPUDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
     if args.ioNeeded:
-        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
+        m.add_monitor('io', SystemObserver(IODataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
     if args.netNeeded:
-        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
+        m.add_monitor('netstat', SystemObserver(NetIfDataSource(*args.iflist), lambda: random.uniform(args.sampleint, args.sampleint)))
     if args.memNeeded:
-        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(args.loadStartNeeded, args.loadEndNeeded)))
+        m.add_monitor('mem', SystemObserver(MemoryDataSource(), lambda: random.uniform(args.sampleint, args.sampleint)))
 
     if args.rttNeeded:
         rttsrc = ICMPHopLimitedRTTSource()
@@ -224,6 +251,9 @@ def main():
         m.add_monitor('rtt', SystemObserver(rttsrc, lambda: random.gammavariate(*gparms)))
 
     commandline = "sleep 5"
+    if not m.monitors:
+        print("No monitors configured, so I'm not starting.", file=sys.stderr)
+        return
     m.run(args.commandline)
 
 if __name__ == '__main__':
