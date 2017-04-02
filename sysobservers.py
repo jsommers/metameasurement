@@ -10,6 +10,7 @@ import functools
 import random
 import os
 from math import isinf
+from enum import Enum
 
 from psutil import cpu_times_percent, disk_io_counters, \
     net_io_counters, virtual_memory
@@ -79,6 +80,11 @@ def _create_decoder():
     return decode
 
 decode_packet = _create_decoder()
+
+
+class RTTProbeType(Enum):
+    HopLimited = 1
+    EchoRequestReply = 2
 
 
 class ICMPHopLimitedRTTSource(DataSource):
@@ -226,10 +232,17 @@ class ICMPHopLimitedRTTSource(DataSource):
             nh = self._routes[dst]
         except KeyError:
             raise RuntimeException("No route to destination {} for network monitoring".format(dst))
+
+        if str(nh.nexthop) == '0.0.0.0': # address on same subnet
+            nexthopaddr = dest
+        else:
+            nexthopaddr = nh.nexthop
+
         try:
-            ethaddr = await self._do_arp(str(nh.nexthop), nh.interface)
+            ethaddr = await self._do_arp(str(nexthopaddr), nh.interface)
         except asyncio.CancelledError:
             return
+
         thisintf = self._ifinfo[nh.interface]
         pkt = Ethernet(src=thisintf.ethsrc, dst=ethaddr) + \
             IPv4(src=thisintf.ipsrc.ip, dst=dst, protocol=IPProtocol.ICMP,
