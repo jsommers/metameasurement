@@ -46,6 +46,10 @@ def _compute_diff_with_wrap(curr, last):
     return curr + (dtypemax - last)
 
 
+class ConfigurationError(Exception):
+    pass
+
+
 class DataSource(object):
     '''
     A data source for some system tool from which host performance
