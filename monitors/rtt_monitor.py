@@ -84,7 +84,6 @@ class ICMPProbeHelper(ProbeHelper):
     '''
     identifier: ICMP echo ident
     sequence: ICMP echo seq
-    original ttl: IP id
     '''
     name = 'icmp'
     klass = ICMP
@@ -103,8 +102,7 @@ class ICMPProbeHelper(ProbeHelper):
     def decode_carcass(p):
         seq = p[ICMP].icmpdata.sequence
         ident = p[ICMP].icmpdata.identifier
-        origttl = p[IPv4].ipid & 0xff
-        return seq, ident, origttl
+        return seq, ident
 
     @staticmethod
     def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, ident, dport=44444):
@@ -115,7 +113,6 @@ class ICMPProbeHelper(ProbeHelper):
     @staticmethod
     def fill_in(p, ethdst, ttl, seq):
         ProbeHelper.fill_in(p, ethdst, ttl)
-        p[IPv4].ipid = ttl 
         p[ICMP].icmpdata.sequence = seq
 
 
@@ -123,7 +120,6 @@ class TCPProbeHelper(ProbeHelper):
     '''
     identifier: TCP source port
     sequence: TCP sequence (it is within the first 8 bytes of TCP header)
-    original ttl: IP id
     '''
     name = 'tcp'
     klass = TCP
@@ -143,8 +139,7 @@ class TCPProbeHelper(ProbeHelper):
     def decode_carcass(p):
         seq = p[TCP].seq
         ident = p[TCP].src
-        origttl = p[IPv4].ipid & 0xff
-        return seq, ident, origttl
+        return seq, ident
 
     @staticmethod
     def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, ident, dport=DESTPORT):
@@ -156,7 +151,6 @@ class TCPProbeHelper(ProbeHelper):
     @staticmethod
     def fill_in(p, ethdst, ttl, seq):
         ProbeHelper.fill_in(p, ethdst, ttl)
-        p[IPv4].ipid = ttl 
         p[TCP].seq = seq
 
 
@@ -183,14 +177,13 @@ class UDPProbeHelper(ProbeHelper):
     def decode_carcass(p):
         seq = p[IPv4].ipid
         ident = p[UDP].src
-        origttl = p[UDP]._len
-        return seq, ident, origttl
+        return seq, ident
 
     @staticmethod
     def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, ident, dport=DESTPORT):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
         p += UDP(src=ident, dst=dport)
-        p += RawPacketContents() # place holder for raw data
+        p += RawPacketContents(b'') # place holder for raw data
         return p
 
     @staticmethod
@@ -360,14 +353,15 @@ class RTTProbeSource(DataSource):
                     self._log.debug("Packet carcass: {}".format(p))
                     if p.has_header(self._probehelper.klass):
                         # ttl stuffed into ipid of previously sent pkt is unreliable
-                        seq, ident, ottl = self._probehelper.decode_carcass(p)
+                        seq, ident = self._probehelper.decode_carcass(p)
                         if ident == self._pktident:
                             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Incoming))
 
             # identify our outgoing TCP or UDP probe packet.  ICMP is caught
             # in prevous elif
             elif pkt.has_header(self._probehelper.klass): 
-                seq,ident,origttl = self._decode_carcass(pkt)
+                seq,ident = self._probehelper.decode_carcass(pkt)
+                origttl = pkt[IPv4].ttl
                 if ident == self._pktident:
                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Outgoing))
 
