@@ -61,12 +61,12 @@ class ArpCache(object):
 
 class ProbeHelper(object):
     @staticmethod
-    def reconstruct(raw):
+    def reconstruct_carcass(raw):
         p = Packet()
         ip = IPv4()
         rawremain = ip.from_bytes(raw)
         p += ip
-        return p,raw
+        return p,rawremain
 
     @staticmethod
     def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl):
@@ -92,8 +92,8 @@ class ICMPProbeHelper(ProbeHelper):
     pcapfilter = '(icmp[icmptype] == icmp-echo or icmp[icmptype] == icmp-echoreply or icmp[icmptype] == icmp-timxceed) or arp'
 
     @staticmethod
-    def reconstruct(raw):
-        p,raw = ProbeHelper.reconstruct(raw)
+    def reconstruct_carcass(raw):
+        p,raw = ProbeHelper.reconstruct_carcass(raw)
         icmp = ICMP()
         icmp.from_bytes(raw)
         p += icmp
@@ -131,8 +131,8 @@ class TCPProbeHelper(ProbeHelper):
     pcapfilter = 'icmp[icmptype]==icmp-timxceed or arp or dst port {}'.format(DESTPORT)
 
     @staticmethod
-    def reconstruct(raw):
-        p,raw = ProbeHelper.reconstruct(raw)
+    def reconstruct_carcass(raw):
+        p,raw = ProbeHelper.reconstruct_carcass(raw)
         tcp = TCP()
         newraw = raw + (20 - len(raw))*b'\x00'
         tcp.from_bytes(newraw)
@@ -172,8 +172,8 @@ class UDPProbeHelper(ProbeHelper):
     pcapfilter = 'icmp[icmptype]==icmp-timxceed or arp or dst port {}'.format(DESTPORT)
 
     @staticmethod
-    def reconstruct(raw):
-        p,raw = ProbeHelper.reconstruct(raw)
+    def reconstruct_carcass(raw):
+        p,raw = ProbeHelper.reconstruct_carcass(raw)
         udp = UDP()
         udp.from_bytes(raw)
         p += udp
@@ -247,6 +247,7 @@ class RTTProbeSource(DataSource):
 
         self._pktident = os.getpid()% 65536
 
+        self._usersend = {}
         self._seqhash = {
             ProbeDirection.Incoming: {},
             ProbeDirection.Outgoing: {},
@@ -267,7 +268,8 @@ class RTTProbeSource(DataSource):
         p = pcapffi.PcapLiveDevice.create(ifname)
         p.snaplen = 256
         p.set_promiscuous(True)
-        p.set_timeout(100)
+        p.set_timeout(10)
+        #p.set_immediate_mode(True)
 
         # choose the "best" timestamp available:
         # highest number up to 3 (don't use unsynced adapter stamps)
@@ -353,21 +355,31 @@ class RTTProbeSource(DataSource):
                         direction = ProbeDirection.Incoming
                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt[IPv4].ttl,direction))
                 elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
-                    p = self._probehelper.reconstruct(pkt[ICMP].icmpdata.data)
+                    p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
+                    origttl = self._infer_orig_ttl(pkt[IPv4].ttl)
                     self._log.debug("Packet carcass: {}".format(p))
                     if p.has_header(self._probehelper.klass):
-                        seq, ident = self._probehelper.decode_carcass(p)
+                        # ttl stuffed into ipid of previously sent pkt is unreliable
+                        seq, ident, ottl = self._probehelper.decode_carcass(p)
                         if ident == self._pktident:
-                            origttl = p[IPv4].ipid & 0xff
                             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Incoming))
 
             # identify our outgoing TCP or UDP probe packet.  ICMP is caught
             # in prevous elif
             elif pkt.has_header(self._probehelper.klass): 
-                seq,ident = self._decode_carcass(pkt)
+                seq,ident,origttl = self._decode_carcass(pkt)
                 if ident == self._pktident:
-                    origttl = pkt[IPv4].ipid & 0xff
                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Outgoing))
+
+    @staticmethod
+    def _infer_orig_ttl(recvttl):
+        if recvttl > 128:
+            return 255-recvttl+1
+        elif recvttl > 64:
+            return 128-recvttl+1
+        elif recvttl > 32:
+            return 64-recvttl+1
+        return 32-recvttl+1
 
     def _send_packet(self, intf, pkt):
         self._log.debug("Sending on {}: {}".format(intf, pkt))
@@ -431,22 +443,18 @@ class RTTProbeSource(DataSource):
         for ttl in range(start_ttl, end_ttl, -1):
             self._probehelper.fill_in(self._pkttemplate, ethdst, ttl, seq)
             self._send_packet(self._interface, self._pkttemplate)
+            self._usersend[(seq,ttl)] = time() 
 
         self._probeseq += 1
         if self._probeseq == self._probewrap:
             self._probeseq = 1
 
     async def _ping_collector(self, fut):
-        def store_result(seq, pcapsend, pcaprecv):
+        def store_result(seq, origttl, usersend, pcapsend, pcaprecv):
             pcaprtt = pcaprecv - pcapsend
-            result = {'rtt':pcaprtt, 
-                      'recv':pcaprecv, 'send':pcapsend}
-            if isinstance(seq, tuple):
-                seq,origttl = seq[0],seq[1]
-                result['seq'] = seq
-                result['origttl'] = origttl
-            else:
-                result['seq'] = seq
+            result = {'rtt':pcaprtt, 'recv':pcaprecv, 
+                      'send':pcapsend,
+                      'origttl':origttl, 'seq':seq }
             self._add_result(result)
 
         seqhash = self._seqhash
@@ -465,12 +473,12 @@ class RTTProbeSource(DataSource):
                 self._num_probes_recv += 1
 
             xhash = seqhash[direction]
-            if self._probe_all_hops:
-                seq = (seq, origttl)
-            xhash[seq] = ts
+            xhash[(seq,origttl)] = ts
 
-        for seq in sorted(outgoing.keys()):
-            store_result(seq, outgoing.get(seq, float('inf')), 
+        for seq in sorted(self._usersend.keys()):
+            xseq, origttl = seq
+            store_result(xseq, origttl, self._usersend[seq],
+                              outgoing.get(seq, float('inf')), 
                               incoming.get(seq, float('inf')))
 
         fut.set_result(self._num_probes_sent)
