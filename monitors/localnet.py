@@ -1,6 +1,6 @@
 import sys
 import re
-from ipaddress import IPv4Network, IPv4Interface
+from ipaddress import IPv4Network, IPv4Interface, IPv4Address
 from collections import defaultdict
 from subprocess import check_output, PIPE, STDOUT, getstatusoutput
 import socket
@@ -77,7 +77,7 @@ def read_system_arp_cache():
         mobj = ethip.search(line)
         if mobj:
             # print(mobj.group('ip'), mobj.group('eth'))
-            arp_map[mobj.group('ip')] = mobj.group('eth')
+            arp_map[IPv4Address(mobj.group('ip'))] = EthAddr(mobj.group('eth'))
     return arp_map
         
 

@@ -74,7 +74,7 @@ def main():
                         help='Include individual item in the plot, e.g., monitors:cpu:idle')
     parser.add_argument('-g', '--group', dest='groups', action='append', \
                         help='Include a group of items in the plot, e.g., \
-                        rtt includes icmprtt and seq')
+                        rtt includes rtt and seq')
     parser.add_argument('-a', '--all', action='store_true', \
                         help='Plot all groups in separate subplots.')
     parser.add_argument('jsonmeta', nargs=1)

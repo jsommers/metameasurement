@@ -92,9 +92,10 @@ class ResultsContainer(object):
         return self._results[-1][1][key]
 
     def compute(self, fn, key, lastn=0):
-        if not self._results:
+        data = [ t[1][key] for t in self._results[-lastn:] if not isinf(t[1][key]) ]
+        if not data:
             return None
-        return fn([ t[1][key] for t in self._results[-lastn:] if not isinf(t[1][key]) ])
+        return fn(data)
 
     def summary(self, fn):
         if not self._results:

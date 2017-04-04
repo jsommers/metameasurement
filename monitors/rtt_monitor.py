@@ -49,22 +49,30 @@ class RTTProbeSource(DataSource):
     Monitor RTTs to some number of hops using ICMP echo requests with low
     TTLs.  Uses Switchyard libraries to handle packet construction/emission/reception.
     '''
-    def __init__(self, interface, probetype, proto, samples,
-        maxttl, allhops, dest):
+    def __init__(self, interface, probetype, proto, maxttl, allhops, dest):
         DataSource.__init__(self)
         self._interface = interface
         self._probetype = probetype
 
-        self._probeprotostr = proto
-        self._probeproto = _protomap[proto][0]
-        self._probeprotocls = _protomap[proto][1]
-        self._samples_per_probe = samples
-        self._maxttl = maxttl  # only meaningful for hop-limited probes
-        self._probe_all_hops = allhops # only meaningful for hop-limited probes
-        self._dest = dest 
-        self._destport = 44444 # for UDP and TCP probes
+        if self._probetype == 'ping':
+            self._maxttl = 64
+            self._probeprotostr = 'icmp'
+            self._probeproto = IPProtocol.ICMP
+            self._probeprotocls = ICMP
+        elif self._probetype == 'hoplimited':
+            self._probeprotostr = proto
+            self._probeproto = _protomap[proto][0]
+            self._probeprotocls = _protomap[proto][1]
+            self._maxttl = maxttl  # only meaningful for hop-limited probes
+            self._probe_all_hops = allhops # only meaningful for hop-limited probes
+            self._destport = 44444 # for UDP and TCP probes
+
+        self._dest = IPv4Address(dest)
+        self._ifinfo = None
+        self._lookup_nexthop()
 
         self._probeseq = 1
+        self._num_probes_sent = self._num_probes_recv = 0
 
         self._arp_cache = read_system_arp_cache()
         self._arp_queue = asyncio.Queue()
@@ -73,7 +81,6 @@ class RTTProbeSource(DataSource):
         if sys.platform == 'linux':
             self._sendsock = None
         self._log = logging.getLogger('mm')
-        self._ifinfo = None
 
         self._pktident = os.getpid()%65536
 
@@ -82,13 +89,7 @@ class RTTProbeSource(DataSource):
             ProbeDirection.Outgoing: {},
         }
 
-        if self._probetype != 'hoplimited':
-            self._maxttl = 64
-
-        self._lookup_nexthop()
         self._construct_packet_template()
-
-        self._beforesend = {}
 
         if self._probeprotostr == 'icmp':
             filt = '(icmp[icmptype] == icmp-echo or icmp[icmptype] == icmp-echoreply or icmp[icmptype] == icmp-timxceed) or arp'
@@ -99,7 +100,7 @@ class RTTProbeSource(DataSource):
         self._monfut = asyncio.Future()
         asyncio.ensure_future(self._ping_collector(self._monfut))
 
-    def _setup_port(self, ifname, filterstr=''):
+    def _setup_port(self, ifname, filterstr):
         p = pcapffi.PcapLiveDevice.create(ifname)
         p.snaplen = 256
         p.set_promiscuous(True)
@@ -130,7 +131,7 @@ class RTTProbeSource(DataSource):
             self._log.warn("Warning on activation: {}".format(wval.name))
 
         p.set_direction(pcapffi.PcapDirection.InOut)
-        p.set_filter("icmp or arp")
+        p.set_filter(filterstr)
 
         self._pcap = p
         if sys.platform == 'linux':
@@ -181,37 +182,47 @@ class RTTProbeSource(DataSource):
                 a = pkt[Arp]
                 self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
             elif pkt.has_header(ICMP):
+                self._log.debug("Got ICMP: {}".format(pkt))
                 if (pkt[ICMP].icmptype in (ICMPType.EchoReply,ICMPType.EchoRequest) and \
                     pkt[ICMP].icmpdata.identifier == self._pktident):
                     seq = pkt[ICMP].icmpdata.sequence
                     direction = ProbeDirection.Outgoing 
-                    sample = 0 # FIXME
                     if pkt[ICMP].icmptype == ICMPType.EchoReply:
                         direction = ProbeDirection.Incoming
-                    self._probe_queue.put_nowait((ts,seq,sample,pkt[IPv4].src,pkt[IPv4].ttl,direction))
-
-                    # FIXME: outgoing echo request needs to include sample, origttl in
-                    # the payload
-
+                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt[IPv4].ttl,direction))
                 elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
-                    p = Packet(pkt[ICMP].icmpdata.data, first_header=IPv4) 
+                    p = self._reconstruct_packet(pkt[ICMP].icmpdata.data)
                     if p.has_header(self._probeprotocls):
                         seq, ident = self._decode_packet_carcass(p)
                         if ident == self._pktident:
-                            origipid = p[IPv4].ipid
-                            origttl = origipid & 0xff
-                            sample = origipid >> 8
-                            self._probe_queue.put_nowait((ts,seq,sample,pkt[IPv4].src,origttl,ProbeDirection.Incoming))
+                            origttl = p[IPv4].ipid & 0xff
+                            self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Incoming))
 
             # identify our outgoing TCP or UDP probe packet.  ICMP is caught
             # in prevous elif
             elif pkt.has_header(self._probeprotocls): 
                 seq,ident = self._decode_packet_carcass(pkt)
                 if ident == self._pktident:
-                    ipid = pkt[IPv4].ipid
-                    origttl = ipid & 0xff
-                    sample = ipid >> 8
-                    self._probe_queue.put_nowait((ts,seq,sample,pkt[IPv4].src,origttl,ProbeDirection.Outgoing))
+                    origttl = pkt[IPv4].ipid & 0xff
+                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Outgoing))
+
+    def _reconstruct_packet(self, raw):
+        p = Packet()
+        ip = IPv4()
+        rawremain = ip.from_bytes(raw)
+        p += ip
+        if ip.protocol == IPProtocol.ICMP:
+            icmp = ICMP()
+            p += icmp.from_bytes(rawremain)
+        elif ip.protocol == IPProtocol.UDP:
+            udp = UDP()
+            p += udp.from_bytes(rawremain)
+        elif ip.protocol == IPProtocol.TCP:
+            tcp = TCP()
+            newraw = rawremain + (20 - len(rawremain))*b'\x00'
+            tcp.from_bytes(newraw)
+            p += tcp
+        return p
 
     def _decode_packet_carcass_icmp(self, p):
         seq = p[ICMP].icmpdata.sequence
@@ -219,12 +230,17 @@ class RTTProbeSource(DataSource):
         return seq, ident
 
     def _decode_packet_carcass_tcp(self, p):
-        pass
+        seq = p[IPv4].ipid
+        ident = p[TCP].src
+        return seq, ident
 
     def _decode_packet_carcass_udp(self, p):
-        pass
+        seq = p[IPv4].ipid
+        ident = p[UDP].src
+        return seq, ident
 
     def _send_packet(self, intf, pkt):
+        self._log.debug("Sending on {}: {}".format(intf, pkt))
         if sys.platform == 'linux':
             self._sendsock.send(pkt.to_bytes())
         else:
@@ -232,7 +248,9 @@ class RTTProbeSource(DataSource):
 
     async def _do_arp(self, ethsrc, ipsrc, dst, intf):
         if dst in self._arp_cache:
+            self._log.debug("ARP cache hit")
             return self._arp_cache[dst]
+        self._log.debug("ARP cache miss; sending req for {} ({})".format(dst, type(dst)))
         arpreq = create_ip_arp_request(ethsrc, ipsrc, dst)
         fareth = "00:00:00:00:00:00"
         self._send_packet(intf, arpreq)
@@ -241,7 +259,7 @@ class RTTProbeSource(DataSource):
                 ethaddr,ipaddr = await self._arp_queue.get()
             except asyncio.CancelledError:
                 break
-            self._arp_cache[str(ipaddr)] = ethaddr
+            self._arp_cache[IPv4Address(ipaddr)] = EthAddr(ethaddr)
             if ipaddr == dst:
                 break
         return ethaddr
@@ -252,7 +270,6 @@ class RTTProbeSource(DataSource):
             - Ethernet.dst
             - IPv4.ttl (possibly)
             - Probe sequence
-            - Probe sample #
             ... done in _fill_in_pkt_details
         '''
         thisintf = self._ifinfo[self._interface]
@@ -265,32 +282,32 @@ class RTTProbeSource(DataSource):
             l4 = ICMP(icmptype=ICMPType.EchoRequest,
                       identifier=self._pktident)
         elif self._probeproto == IPProtocol.TCP:
-            l4 = TCP(src=ident, dst=self._dstport, window=228)
+            l4 = TCP(src=self._pktident, dst=self._destport, window=228)
             l4.SYN = 1
         elif self._probeproto == IPProtocol.UDP:
-            l4 = UDP(src=ident, dst=self._dstport)
+            l4 = UDP(src=self._pktident, dst=self._destport)
         self._pkttemplate += l4
 
-    def _fill_in_pkt_details_icmp(self, ethdst, ttl, seq, sample):
+    def _fill_in_pkt_details_icmp(self, ethdst, ttl, seq):
         self._pkttemplate[Ethernet].dst = ethdst
         self._pkttemplate[IPv4].ttl = ttl
-        self._pkttemplate[IPv4].ipid = sample << 8 | ttl
+        self._pkttemplate[IPv4].ipid = ttl
         self._pkttemplate[ICMP].icmpdata.sequence = seq
 
-    def _fill_in_pkt_details_tcp(self, ethdst, ttl, seq, sample):
+    def _fill_in_pkt_details_tcp(self, ethdst, ttl, seq):
         self._pkttemplate[Ethernet].dst = ethdst
         self._pkttemplate[IPv4].ttl = ttl
-        self._pkttemplate[IPv4].ipid = sample << 8 | ttl
+        self._pkttemplate[IPv4].ipid = seq
         self._pkttemplate[TCP].seq = seq
 
-    def _fill_in_pkt_details_udp(self, ethdst, ttl, seq, sample):
+    def _fill_in_pkt_details_udp(self, ethdst, ttl, seq):
         self._pkttemplate[Ethernet].dst = ethdst
         self._pkttemplate[IPv4].ttl = ttl
-        self._pkttemplate[IPv4].ipid = sample << 8 | ttl
-        ipid = sequence # FIXME
+        self._pkttemplate[IPv4].ipid = seq
 
     async def _emitprobe(self, dst):
         thisintf = self._ifinfo[self._interface]
+        self._num_probes_sent += 1
 
         try:
             dsteth = await self._do_arp(thisintf.ethsrc, thisintf.ipsrc.ip, 
@@ -299,44 +316,44 @@ class RTTProbeSource(DataSource):
             return
 
         # FIXME: multiple TTLs (for along a path)
-        # FIXME: multiple samples per sequence
 
         seq = self._probeseq
-        self._fill_in_pkt_details(dsteth, self._maxttl, seq, 0)
+        self._fill_in_pkt_details(dsteth, self._maxttl, seq)
         self._probeseq += 1
         if self._probeseq == 65536:
             self._probeseq = 1
 
-        self._beforesend[seq] = time()
         self._send_packet(self._interface, self._pkttemplate)
 
     async def _ping_collector(self, fut):
-        def store_result(seq, beforesend, pcapsend, pcaprecv):
-            icmprtt = pcaprecv - pcapsend
-            userrtt = pcaprecv - beforesend
-            self._add_result({'pcaprtt':icmprtt,'seq':seq,'recv':pcaprecv,
-                'usersend':beforesend, 'pcapsend':pcapsend, 'userrtt':userrtt})
-            self._num_probes += 1
+        def store_result(seq, pcapsend, pcaprecv):
+            pcaprtt = pcaprecv - pcapsend
+            self._add_result({'rtt':pcaprtt, 'seq':seq,
+                              'recv':pcaprecv, 'send':pcapsend})
 
         seqhash = self._seqhash
         outgoing = self._seqhash[ProbeDirection.Outgoing]
         incoming = self._seqhash[ProbeDirection.Incoming]
-        self._num_probes = 0
 
         while not self._done:
             try:
-                ts,seq,sample,src,origttl,direction = await self._probe_queue.get()
+                ts,seq,src,origttl,direction = await self._probe_queue.get()
             except asyncio.CancelledError:
                 break
+
+            self._log.debug("Got seq {} from {} direction {} at {}".format(
+                seq, src, direction.name, ts))
+            if direction == ProbeDirection.Incoming:
+                self._num_probes_recv += 1
 
             xhash = seqhash[direction]
             xhash[seq] = ts
 
-        for seq in sorted(self._beforesend.keys()):
-            store_result(seq, self._beforesend[seq], 
-                outgoing.get(seq, float('inf')), incoming.get(seq, float('inf')))
+        for seq in sorted(outgoing.keys()):
+            store_result(seq, outgoing.get(seq, float('inf')), 
+                              incoming.get(seq, float('inf')))
 
-        fut.set_result(self._num_probes)
+        fut.set_result(self._num_probes_sent)
 
     def setup(self, metamaster, resultscontainer):
         self._add_result = resultscontainer.add_result
@@ -368,9 +385,9 @@ class RTTProbeSource(DataSource):
 
         dconfig = { 'protocol':self._probeprotostr,
                     'probetype':self._probetype,
-                    'samples_per_probe':self._samples_per_probe,
-                    'dest':self._dest,
-                    'total_probes_emitted': self._num_probes }
+                    'dest':str(self._dest),
+                    'total_probes_emitted': self._num_probes_sent,
+                    'total_probes_received': self._num_probes_recv }
         if self._probetype == 'hoplimited':
             dconfig['maxttl'] = self._maxttl
             dconfig['probe_all_hops'] = self._probe_all_hops
@@ -385,7 +402,6 @@ def create(config):
         rate=probe_rate (average probes/sec; probes are emitted according to an erlang distribuion
         type=(ping|hoplimited) #
         proto=(icmp|tcp|udp) # ping type implies icmp; default for hoplimited is icmp
-        samples=1 # number of probe samples per sequence number (default = 1)
         maxttl=1
         allhops=True
     '''
@@ -413,13 +429,12 @@ def create(config):
     else:
         protostr = 'icmp'
 
-    samples = int(config.pop('samples', 1))
     maxttl = int(config.pop('maxttl', 1))
     allhops = bool(config.pop('allhops', True))
 
     rate = float(config.pop('rate', 1))
     if config:
         raise ConfigurationError("Unused configuration items for RTT monitor: {}".format(config))
-    prober = RTTProbeSource(interface, probetype, protostr, samples, 
+    prober = RTTProbeSource(interface, probetype, protostr, 
         maxttl, allhops, dest)
     return SystemObserver(prober, _gamma_observer(rate))
