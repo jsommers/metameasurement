@@ -54,12 +54,18 @@ A basic recipe for running the tool::
                            For example, to monitor en0's netstat counters
                            every 5 seconds:
                            -M netstat:interval=5:en0
-                -M rtt:interface=IfaceName:rate=R:dest=D
+                -M rtt:interface=IfaceName:rate=R:dest=D:type=ProbeType:maxttl=MaxTTL:proto=Protocol:allhops
                            Monitor RTT along a path to destination D 
                            out of interface IfaceName with probe rate R.
                            Probe interval is gamma distributed.
-                           Default dest = 8.8.8.8.
-                           Default rate = 1/sec.
+                           Default dest D = 8.8.8.8.
+                           Default rate R = 1/sec.
+                           ProbeType = ping | hoplimited (default=hoplimited)
+                           MaxTTL = maximum ttl (for hop-limited probes)
+                                    default value = 1
+                           Protocol = (icmp | tcp | udp) (for hop-limited probes)
+                                    default = icmp
+                           allhops = probe all hops up to maxttl (for hop-limited probes)
 
 
     # Examples
