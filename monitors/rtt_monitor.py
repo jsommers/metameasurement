@@ -44,6 +44,29 @@ class ProbeDirection(IntEnum):
     Incoming = 1
 
 
+class ProbeHelper(object):
+    pass
+
+class ICMPHelper(ProbeHelper):
+    name = 'icmp'
+    klass = ICMP
+    proto = IPProtocol.ICMP
+
+
+class TCPHelper(ProbeHelper):
+    name = 'tcp'
+    klass = TCP
+    proto = IPProtocol.TCP
+
+class UDPHelper(ProbeHelper):
+    name = 'udp'
+    klass = UDP
+    proto = IPProtocol.UDP
+
+
+# FIXME: doesn't yet handle sequence wrap when compiling results
+
+
 class RTTProbeSource(DataSource):
     '''
     Monitor RTTs to some number of hops using ICMP echo requests with low
@@ -59,6 +82,7 @@ class RTTProbeSource(DataSource):
             self._probeprotostr = 'icmp'
             self._probeproto = IPProtocol.ICMP
             self._probeprotocls = ICMP
+            self._probe_all_hops = False
         elif self._probetype == 'hoplimited':
             self._probeprotostr = proto
             self._probeproto = _protomap[proto][0]
@@ -192,6 +216,7 @@ class RTTProbeSource(DataSource):
                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt[IPv4].ttl,direction))
                 elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
                     p = self._reconstruct_packet(pkt[ICMP].icmpdata.data)
+                    self._log.debug("Packet carcass: {}".format(p))
                     if p.has_header(self._probeprotocls):
                         seq, ident = self._decode_packet_carcass(p)
                         if ident == self._pktident:
@@ -213,10 +238,12 @@ class RTTProbeSource(DataSource):
         p += ip
         if ip.protocol == IPProtocol.ICMP:
             icmp = ICMP()
-            p += icmp.from_bytes(rawremain)
+            icmp.from_bytes(rawremain)
+            p += icmp
         elif ip.protocol == IPProtocol.UDP:
             udp = UDP()
-            p += udp.from_bytes(rawremain)
+            udp.from_bytes(rawremain)
+            p += udp
         elif ip.protocol == IPProtocol.TCP:
             tcp = TCP()
             newraw = rawremain + (20 - len(rawremain))*b'\x00'
@@ -297,7 +324,7 @@ class RTTProbeSource(DataSource):
     def _fill_in_pkt_details_tcp(self, ethdst, ttl, seq):
         self._pkttemplate[Ethernet].dst = ethdst
         self._pkttemplate[IPv4].ttl = ttl
-        self._pkttemplate[IPv4].ipid = seq
+        self._pkttemplate[IPv4].ipid = ttl
         self._pkttemplate[TCP].seq = seq
 
     def _fill_in_pkt_details_udp(self, ethdst, ttl, seq):
@@ -315,21 +342,34 @@ class RTTProbeSource(DataSource):
         except asyncio.CancelledError:
             return
 
-        # FIXME: multiple TTLs (for along a path)
-
         seq = self._probeseq
-        self._fill_in_pkt_details(dsteth, self._maxttl, seq)
+
+        start_ttl = self._maxttl
+        end_ttl = start_ttl - 1
+        if self._probe_all_hops:
+            end_ttl = 0
+
+        for ttl in range(start_ttl, end_ttl, -1):
+            self._fill_in_pkt_details(dsteth, ttl, seq)
+            self._send_packet(self._interface, self._pkttemplate)
+
         self._probeseq += 1
         if self._probeseq == 65536:
             self._probeseq = 1
 
-        self._send_packet(self._interface, self._pkttemplate)
 
     async def _ping_collector(self, fut):
         def store_result(seq, pcapsend, pcaprecv):
             pcaprtt = pcaprecv - pcapsend
-            self._add_result({'rtt':pcaprtt, 'seq':seq,
-                              'recv':pcaprecv, 'send':pcapsend})
+            result = {'rtt':pcaprtt, 
+                      'recv':pcaprecv, 'send':pcapsend}
+            if isinstance(seq, tuple):
+                seq,origttl = seq[0],seq[1]
+                result['seq'] = seq
+                result['origttl'] = origttl
+            else:
+                result['seq'] = seq
+            self._add_result(result)
 
         seqhash = self._seqhash
         outgoing = self._seqhash[ProbeDirection.Outgoing]
@@ -341,12 +381,14 @@ class RTTProbeSource(DataSource):
             except asyncio.CancelledError:
                 break
 
-            self._log.debug("Got seq {} from {} direction {} at {}".format(
-                seq, src, direction.name, ts))
+            self._log.debug("Got seq {} from {} ottl {} direction {} at {}".format(
+                seq, src, origttl, direction.name, ts))
             if direction == ProbeDirection.Incoming:
                 self._num_probes_recv += 1
 
             xhash = seqhash[direction]
+            if self._probe_all_hops:
+                seq = (seq, origttl)
             xhash[seq] = ts
 
         for seq in sorted(outgoing.keys()):
@@ -430,6 +472,7 @@ def create(config):
         protostr = 'icmp'
 
     maxttl = int(config.pop('maxttl', 1))
+    maxttl = max(maxttl, 1) 
     allhops = bool(config.pop('allhops', True))
 
     rate = float(config.pop('rate', 1))
