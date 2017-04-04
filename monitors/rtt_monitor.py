@@ -158,7 +158,6 @@ class UDPProbeHelper(ProbeHelper):
     '''
     identifier: UDP source port
     sequence: IP id
-    original ttl: UDP length (+ pad the packet out)
     '''
     name = 'udp'
     klass = UDP
@@ -183,15 +182,12 @@ class UDPProbeHelper(ProbeHelper):
     def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, ident, dport=DESTPORT):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
         p += UDP(src=ident, dst=dport)
-        p += RawPacketContents(b'') # place holder for raw data
         return p
 
     @staticmethod
     def fill_in(p, ethdst, ttl, seq):
         ProbeHelper.fill_in(p, ethdst, ttl)
         p[IPv4].ipid = seq
-        xdata = RawPacketContents(b'\x01' * ttl)
-        p[-1] = xdata
 
 
 _protomap = {
