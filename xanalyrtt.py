@@ -11,7 +11,7 @@ def printstats(name, xlist):
     print("\tmedian: {}".format(median(xlist)))
 
 def analyze(key, xdict):
-    print("Analyzing {}".format(key))
+    print("Analyzing {} ({})".format(key, xdict['probe_config']))
     for rttkey in xdict.keys():
         if rttkey.startswith('ttl') or rttkey == 'ping':
             gatherandprint(rttkey, xdict[rttkey])

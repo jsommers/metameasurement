@@ -425,7 +425,6 @@ class RTTProbeSource(DataSource):
 
     async def _emitprobe(self, dst):
         thisintf = self._ifinfo[self._interface]
-        self._num_probes_sent += 1
 
         try:
             ethdst = await self._do_arp(thisintf.ethsrc, thisintf.ipsrc.ip, 
@@ -446,6 +445,7 @@ class RTTProbeSource(DataSource):
         for ttl in range(start_ttl, end_ttl, -1):
             self._probehelper.fill_in(self._pkttemplate, ethdst, ttl, seq)
             self._send_packet(self._interface, self._pkttemplate)
+            self._num_probes_sent += 1
             key = (seq,ttl)
             if self._probetype == 'ping':
                 key = seq
