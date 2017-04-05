@@ -87,15 +87,15 @@ Plotting tool::
 
     # Tool has the following options
     -i, --item
-            Include individual item in the plot, e.g., monitors:cpu:idle.
+            Include individual item in the plot, e.g., cpu:idle or cpu:nice
     -g, --group
-            Include a group of items in the plot, e.g., rtt includes icmprtt and seq/
+            Include a group of items in the plot, e.g., cpu includes idle, nice, user and system
     -a, --all
             Plot all groups in separate subplots.
 
     # Examples
-    python3 plotmeta.py -i monitors:rtt:icmprtt -i monitors:rtt:seq -i monitors:cpu:idle <json file produced by previous step>
-    python3 plotmeta.py -g rtt <json file produced by previous step>
+    python3 plotmeta.py -i cpu:idle -i io:disk0_write_time <json file produced by previous step>
+    python3 plotmeta.py -g cpu <json file produced by previous step>
     python3 plotmeta.py -a <json file produced by previous step>
 
 Generating artificial load::
