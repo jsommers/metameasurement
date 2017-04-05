@@ -363,7 +363,7 @@ class RTTProbeSource(DataSource):
                     if p.has_header(self._probehelper.klass):
                         # ttl stuffed into ipid of previously sent pkt is unreliable
                         seq, ident = self._probehelper.decode_carcass(p)
-                        if ident == self._pktident:
+                        if ident == self._pktident and p[IPv4].dst == self._dest:
                             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Incoming))
 
             # identify our outgoing TCP or UDP probe packet.  ICMP is caught
