@@ -1,5 +1,5 @@
 import sys
-from abc import abstractmethod
+from abc import abstractmethod, abstractproperty
 import asyncio
 from time import sleep, time
 import re
@@ -64,17 +64,30 @@ class DataSource(object):
     @abstractmethod
     def __call__(self):
         '''
-        Should return a dictionary with keyword:value observations.
+        Should not return anything.
         '''
         raise NotImplementedError()
 
-    def stop(self):
-        self._done = True
+    @abstractmethod
+    def metadata(self):
+        '''
+        Return metadata from the data source.  Can be any Python data type that
+        can be serialized to json.
+        '''
+        pass
 
     def cleanup(self):
         pass
 
-    def setup(self, metamaster, resultscontainer):
+    @abstractproperty
+    def name(self):
+        pass
+
+    def stop(self):
+        self._done = True
+
+    @abstractmethod
+    def show_status(self):
         pass
 
 
@@ -126,22 +139,16 @@ class ResultsContainer(object):
 
 
 class SystemObserver(object):
-    def __init__(self, datasource, intervalfn, dropfirst=True):
+    def __init__(self, datasource, intervalfn):
         self._source = datasource
-        self._results = ResultsContainer()
         self._done = False
         assert(callable(intervalfn))
         self._intervalfn = intervalfn
-        self._dropfirst = dropfirst # for psutil data, best to drop the first measurement
-
-    def setup(self, metamaster):
-        self._source.setup(metamaster, self._results)
 
     async def __call__(self):
         while True:
-            sample = self._source()
-            if sample is not None:
-                self._results.add_result(sample)
+            # call the data source to take a sample
+            self._source()
 
             if self._done or \
                 asyncio.Task.current_task().cancelled():
@@ -151,9 +158,6 @@ class SystemObserver(object):
                 await asyncio.sleep(self._intervalfn())
             except asyncio.CancelledError:
                 break
-
-        if self._dropfirst:
-            self._results.drop_first()
 
     def stop(self):
         self._done = True
@@ -165,8 +169,11 @@ class SystemObserver(object):
         self._intervalfn = fn
 
     @property
-    def results(self):
-        return self._results
+    def source(self):
+        return self._source
+
+    def metadata(self):
+        return self._source.metadata()
 
 
 #def sig_catch(*args):
