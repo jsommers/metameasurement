@@ -9,7 +9,8 @@ from enum import IntEnum
 
 from psutil import net_if_stats
 
-from monitor_base import DataSource, SystemObserver, _gamma_observer, ConfigurationError
+from monitor_base import DataSource, SystemObserver, ResultsContainer, \
+    _gamma_observer, ConfigurationError
 
 from switchyard.lib.userlib import *
 from switchyard import pcapffi
@@ -197,9 +198,6 @@ _protomap = {
 }
 
 
-# FIXME: doesn't yet handle sequence wrap when compiling results
-
-
 class RTTProbeSource(DataSource):
     '''
     Monitor RTTs to some number of hops using ICMP echo requests with low
@@ -215,12 +213,19 @@ class RTTProbeSource(DataSource):
         if self._probetype == 'ping':
             self._maxttl = 64
             self._probe_all_hops = False
+            self._results = ResultsContainer()
         elif self._probetype == 'hoplimited':
             self._maxttl = maxttl  # only meaningful for hop-limited probes
             self._probe_all_hops = allhops # only meaningful for hop-limited probes
+            self._results = {}
+            for i in range(1, maxttl+1):
+                # separate results container for each orig ttl
+                self._results[i] = ResultsContainer() 
 
         self._dest = IPv4Address(dest)
         self._nexthopip = self._lookup_nexthop() 
+
+        self._name = "rtt_{}_{}_{}".format(self._probetype, self._interface, self._dest)
 
         self._probeseq = 1
         self._probewrap = 65536
@@ -252,6 +257,10 @@ class RTTProbeSource(DataSource):
 
         self._monfut = asyncio.Future()
         asyncio.ensure_future(self._ping_collector(self._monfut))
+
+    @property
+    def name(self):
+        return self._name
 
     def _setup_port(self, ifname, filterstr):
         p = pcapffi.PcapLiveDevice.create(ifname)
@@ -338,10 +347,14 @@ class RTTProbeSource(DataSource):
                 self._log.debug("Got ICMP: {}".format(pkt))
                 if (pkt[ICMP].icmptype in (ICMPType.EchoReply,ICMPType.EchoRequest) and \
                     pkt[ICMP].icmpdata.identifier == self._pktident):
+
                     seq = pkt[ICMP].icmpdata.sequence
                     direction = ProbeDirection.Outgoing 
                     if pkt[ICMP].icmptype == ICMPType.EchoReply:
                         direction = ProbeDirection.Incoming
+                        # ignore Echo Reply if src addr doesn't match our intended dest
+                        if pkt[IPv4].src != self._dest:
+                            continue
                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt[IPv4].ttl,direction))
                 elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
                     p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
@@ -433,7 +446,13 @@ class RTTProbeSource(DataSource):
         for ttl in range(start_ttl, end_ttl, -1):
             self._probehelper.fill_in(self._pkttemplate, ethdst, ttl, seq)
             self._send_packet(self._interface, self._pkttemplate)
-            self._usersend[(seq,ttl)] = time() 
+            key = (seq,ttl)
+            if self._probetype == 'ping':
+                key = seq
+            self._usersend[key] = time() 
+            # FIXME if (seq,ttl) in self._usersend, then we've wrapped around
+            # w/o any pcaprecv or pcapsend: purge from each of these and put
+            # in metadata
 
         self._probeseq += 1
         if self._probeseq == self._probewrap:
@@ -445,7 +464,10 @@ class RTTProbeSource(DataSource):
             result = {'rtt':pcaprtt, 'recv':pcaprecv, 
                       'send':pcapsend,
                       'origttl':origttl, 'seq':seq }
-            self._add_result(result)
+            if self._probetype == 'ping':
+                self._results.add_result(result)
+            else:
+                self._results[origttl].add_result(result)
 
         seqhash = self._seqhash
         outgoing = self._seqhash[ProbeDirection.Outgoing]
@@ -462,34 +484,47 @@ class RTTProbeSource(DataSource):
             if direction == ProbeDirection.Incoming:
                 self._num_probes_recv += 1
 
+            key = (seq,origttl)
+            if self._probetype == 'ping':
+                key = seq
             xhash = seqhash[direction]
-            xhash[(seq,origttl)] = ts
+            xhash[key] = ts
 
-        for seq in sorted(self._usersend.keys()):
-            xseq, origttl = seq
-            store_result(xseq, origttl, self._usersend[seq],
-                              outgoing.get(seq, float('inf')), 
-                              incoming.get(seq, float('inf')))
+            if key in outgoing and key in incoming:
+                store_result(seq, origttl, self._usersend.pop(key),
+                    outgoing.pop(key), incoming.pop(key))
+
+        for key in sorted(self._usersend.keys()):
+            if isinstance(key, tuple):
+                xseq, origttl = key
+            else:
+                xseq = key
+                origttl = 0
+            store_result(xseq, origttl, self._usersend[key],
+                              outgoing.get(key, float('inf')), 
+                              incoming.get(key, float('inf')))
 
         fut.set_result(self._num_probes_sent)
 
-    def setup(self, metamaster, resultscontainer):
-        self._add_result = resultscontainer.add_result
-        self._add_metadata = metamaster.add_metadata
-
-    def cleanup(self):
-        # close pcap devices and get stats from them
-        pcapstats = {}
+    def _get_pcap_stats(self):
+        if self._pcap is None:
+            return self._pcapstats
         s = self._pcap.stats()
-        stats = {'recv':s.ps_recv, 'pcapdrop':s.ps_drop, 'ifdrop':s.ps_ifdrop}
-        self._add_metadata('libpcap_stats_{}'.format(self._interface), stats)
+        self._pcapstats = {'recv':s.ps_recv, 'pcapdrop':s.ps_drop, 'ifdrop':s.ps_ifdrop}
+        return self._pcapstats
+        
+    def cleanup(self):
+        s = self._get_pcap_stats()
         self._log.info("Closing {}: {}".format(self._interface, s))
         self._pcap.close()
-        
+        self._pcap = None
         if sys.platform == 'linux':
             self._log.info("Closing rawsock for sending on {}".format(self._interface))
             self._sendsock.close()
 
+    def metadata(self):
+        xmeta = {}
+        xmeta['libpcap_stats'] = self._get_pcap_stats()
         dconfig = { 'protocol':self._probehelper.name,
                     'probetype':self._probetype,
                     'dest':str(self._dest),
@@ -498,7 +533,16 @@ class RTTProbeSource(DataSource):
         if self._probetype == 'hoplimited':
             dconfig['maxttl'] = self._maxttl
             dconfig['probe_all_hops'] = self._probe_all_hops
-        self._add_metadata('rttprobe_config', dconfig)
+        xmeta['probe_config'] = dconfig
+        if self._probetype == 'ping':
+            xmeta['ping'] = self._results.all()
+        else:
+            for i in range(1, self._maxttl+1):
+                xmeta['ttl_{}'.format(i)] = self._results[i].all()
+        return xmeta
+
+    def show_status(self):
+        pass
 
 
 def create(config):
