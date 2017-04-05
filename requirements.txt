@@ -4,4 +4,4 @@ numpy>=1.12.1
 networkx>=1.11
 psutil>=5.2.0
 pytricia>=0.9.4
-switchyard>=2017.01
+switchyard>=2017.1.13
