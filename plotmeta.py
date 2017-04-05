@@ -1,40 +1,51 @@
-import sys
-import argparse
 import json
+import argparse
+from statistics import mean, stdev, median
+from math import isinf
+import sys
 import os.path
 
 import matplotlib.pyplot as plt
 from cycler import cycler
 
 def _gather_ts(metad, k):
-    klist = k.split(':')
-    if len(klist) > 2:
-        return _gather_ts(metad[klist[0]], ':'.join(klist[1:]))
+    group, key = k.split(":")
+    tsList = []
+    valList = []
+    for ts, val in metad['monitors'][group]:
+        if key in val.keys():
+            tsList.append(ts)
+            valList.append(val[key])
+    return tsList, valList
 
-    assert(len(klist) == 2)
-    if klist[0] not in metad:
-        print("Couldn't find data key {}".format(k))
-        sys.exit(-1)
-
-    data = metad[klist[0]]
-    dkey = klist[1]
-    tslist = [ t[0] for t in data ]
-    dlist = [ t[1][dkey] for t in data ]
-    return tslist, dlist
+def _gather_ts_rtt(metad, k):
+    group, key = k.split(":")
+    xlist = metad['monitors'][group][key]
+    tsVal = [ts for ts, xd in xlist]
+    rtt = [ xd['recv'] - xd['send'] for ts,xd in xlist if not isinf(xd['recv']) and not isinf(xd['send']) ]
+    if rtt:
+        return tsVal, rtt
+    else:
+        return tsVal, [None for i in range(len(tsVal))]
 
 def plotItems(inbase, metadata, keys):
     f, axarr = plt.subplots(figsize=(len(keys)*4,len(keys)*4), nrows=len(keys), ncols=1, sharex=True, squeeze=False)
     color_cycle = cycler(c=['r', 'g', 'b'])
     ls_cycle = cycler('ls', ['-.', '--', '-', ':'])
     lw_cycle = cycler('lw', range(1, 4))
-
     sty_cycle = ls_cycle * (color_cycle + lw_cycle)
     styles = []
     for i, sty in enumerate(sty_cycle):
         styles.append(sty)
 
     for idx, key in enumerate(keys):
-        ts, data = _gather_ts(metadata, key)
+        ts = []
+        data = []
+        if key.startswith('rtt'):
+            ts, data = _gather_ts_rtt(metadata, key)
+        else:
+            ts, data = _gather_ts(metadata, key)
+
         axarr[idx,0].plot(ts, data, label=key, **styles[idx])
         axarr[idx,0].grid()
         axarr[idx,0].set_ylabel(key)
@@ -42,34 +53,36 @@ def plotItems(inbase, metadata, keys):
 
     plt.savefig("{}.png".format(inbase))
 
-def plotGroups(inbase, metadata, keys):
-    for key in keys:
-        items = [s for s in _dump_keys(metadata) if key in str(s)]
-        plotItems(inbase+"_"+key, metadata, items)
+def plotGroups(inbase, metadata, keyList):
+    for key in metadata['monitors'].keys():
+        for rKey in keyList:
+            if key in rKey and rKey!='rtt':
+                l = metadata['monitors'][key]
+                ts, obsdict = l.pop(0)
+                newL = [rKey+":"+k for k in obsdict.keys()]
+                plotItems(inbase+"_"+rKey, metadata, newL)
+            if key.startswith(rKey) and rKey=='rtt':
+                newL = []
+                for rttkey in metadata['monitors'][key].keys():
+                    if rttkey.startswith('ttl') or rttkey == 'ping':
+                        newL.append(key+":"+rttkey)
+                plotItems(inbase+"_"+rKey, metadata, newL)
 
 def plotAll(inbase, metadata):
-    groups = list(set([s.split(":")[1] for s in _dump_keys(metadata)]))
-    for group in groups:
-        plotGroups(inbase, metadata, [group])
+    groups = _dump_keys(metadata)
+    plotGroups(inbase, metadata, groups)
 
-def _dump_keys(metad):
-    items = []
-    def _dump_helper(currkey, metad):
-        xdict = metad[currkey]
-        for k,v in xdict.items():
-            if isinstance(v, dict):
-                _dump_helper(':'.join((currkey,k)), v[k])
-            elif isinstance(v, list):
-                ts, obsdict = v.pop(0)
-                for obskey in obsdict.keys():
-                    items.append(':'.join((currkey,k,obskey)))
-
-    _dump_helper('monitors', metad)
-    return items
+def _dump_keys(metadata):
+    keyList = []
+    for key in metadata['monitors'].keys():
+        if key.startswith('rtt'):
+            keyList.append('rtt')
+        else:
+            keyList.append(key)
+    return keyList
 
 def main():
-    parser = argparse.ArgumentParser(
-            description='Plot measurement metadata')
+    parser = argparse.ArgumentParser(description='Plotting script - v2')
     parser.add_argument('-i', '--item', dest='items', action='append', \
                         help='Include individual item in the plot, e.g., monitors:cpu:idle')
     parser.add_argument('-g', '--group', dest='groups', action='append', \
@@ -84,7 +97,8 @@ def main():
     with open(infile) as infileh:
         meta = json.load(infileh)
 
-    inbase,ext = os.path.splitext(infile)
+    inbase, ext = os.path.splitext(infile)
+
     if args.items:
         print("Plotting items: {0}".format(args.items))
         plotItems(inbase+"_items", meta, args.items)
@@ -95,7 +109,7 @@ def main():
         print("Plotting all items in all groups.")
         plotAll(inbase, meta)
     else:
-        print("Must include at least one item to plot.  Here are valid item strings:")
+        print("Must include at least one group or one item from the group to plot.  Here are valid groups:")
         items = _dump_keys(meta)
         print(items)
         sys.exit(-1)
