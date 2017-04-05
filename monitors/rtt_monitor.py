@@ -264,14 +264,12 @@ class RTTProbeSource(DataSource):
 
     def _setup_port(self, ifname, filterstr):
         p = pcapffi.PcapLiveDevice.create(ifname)
-        p.snaplen = 256
+        p.snaplen = 128
         p.set_promiscuous(True)
-        p.set_timeout(10)
-        #p.set_immediate_mode(True)
+        p.set_timeout(100)
 
         # choose the "best" timestamp available:
         # highest number up to 3 (don't use unsynced adapter stamps)
-
         stamptypes = [ t for t in p.list_tstamp_types() if t <= pcapffi.PcapTstampType.Adapter ]
         if len(stamptypes):
             beststamp = max(stamptypes)
