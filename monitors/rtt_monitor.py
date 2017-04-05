@@ -267,6 +267,7 @@ class RTTProbeSource(DataSource):
         p.snaplen = 128
         p.set_promiscuous(True)
         p.set_timeout(100)
+        p.blocking = False
 
         # choose the "best" timestamp available:
         # highest number up to 3 (don't use unsynced adapter stamps)
