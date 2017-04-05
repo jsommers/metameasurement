@@ -1,5 +1,8 @@
+from statistics import mean
+import logging
+
 from psutil import net_io_counters
-from monitor_base import DataSource, SystemObserver, \
+from monitor_base import DataSource, SystemObserver, ResultsContainer, \
     _compute_diff_with_wrap, _periodic_observer
 
 
@@ -20,6 +23,8 @@ class NetIfDataSource(DataSource):
         d1 = list(self._nics)[0]
         self._keys = [ a for a in dir(x[d1]) if not a.startswith('_') and \
             not callable(getattr(x[d1],a)) ]
+        self._results = ResultsContainer()
+        self._log = logging.getLogger('mm')
 
     def __call__(self):
         sample = net_io_counters(pernic=True)
@@ -28,7 +33,20 @@ class NetIfDataSource(DataSource):
                                      getattr(self._lastsample[n], k)) \
                     for k in self._keys for n in self._nics
         }
-        return rd
+        self._results.add_result(rd)
+
+    @property
+    def name(self):
+        return 'netstat'
+
+    def metadata(self):
+        self._results.drop_first()
+        self._log.info("Netstat summary: {}".format(self._results.summary(mean)))
+        return self._results.all()
+
+    def show_status(self):
+        pass
+
 
 def create(config):
     interval = config.pop('interval', 1)

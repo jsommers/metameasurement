@@ -1,5 +1,9 @@
+from statistics import mean
+import logging
+
 from psutil import disk_io_counters
-from monitor_base import SystemObserver, DataSource, _compute_diff_with_wrap, _periodic_observer
+from monitor_base import SystemObserver, DataSource, ResultsContainer, \
+    _compute_diff_with_wrap, _periodic_observer
 
 class IODataSource(DataSource):
     '''
@@ -10,6 +14,8 @@ class IODataSource(DataSource):
         DataSource.__init__(self)
         x = self._lastsample = disk_io_counters(perdisk=True) # as per psutil docs: first call will give rubbish 
         self._disks = x.keys()
+        self._results = ResultsContainer()
+        self._log = logging.getLogger('mm')
         d1 = list(self._disks)[0]
         self._keys = [ a for a in dir(x[d1]) if not a.startswith('_') and \
             not callable(getattr(x[d1],a)) ]
@@ -22,7 +28,19 @@ class IODataSource(DataSource):
                     for k in self._keys for d in self._disks 
         }
         self._lastsample = sample
-        return rd
+        self._results.add_result(rd)
+
+    @property
+    def name(self):
+        return 'io'
+
+    def metadata(self):
+        self._results.drop_first()
+        self._log.info("IO summary: {}".format(self._results.summary(mean)))
+        return self._results.all()
+
+    def show_status(self):
+        pass
 
 
 def create(config):
