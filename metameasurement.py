@@ -53,12 +53,12 @@ class MetadataOrchestrator(object):
             
         logging.basicConfig(**logconfig)
 
-    def add_metadata(self, key, obj):
-        self._metadict[key] = obj
+    def add_monitor(self, sysobserver):
+        name = sysobserver.source.name
+        if name in self._monitors:
+            raise Exception("Duplicate monitor: {}.  Not continuing.".format(name))
 
-    def add_monitor(self, name, sysobserver):
         self._monitors[name] = sysobserver
-        sysobserver.setup(self)
         asyncio.ensure_future(sysobserver())
 
     @property
@@ -85,8 +85,7 @@ class MetadataOrchestrator(object):
 
         self._metadict['monitors'] = {}
         for k,m in self._monitors.items():
-            self._metadict['monitors'][k] = m.results.all()
-            self._log.info("Monitor summary {}: {}".format(k, m.results.summary(mean)))
+            self._metadict['monitors'][k] = m.metadata()
 
         with open("{}.json".format(self._make_filebase()), 'w') as outfile:
             json.dump(self._metadict, outfile)
@@ -140,8 +139,7 @@ class MetadataOrchestrator(object):
                 await asyncio.sleep(self._update_interval)
             except asyncio.CancelledError:
                 break
-            idlecpu = self._monitors['cpu'].results.last_result('idle')
-            self._log.info("Idle CPU {}".format(idlecpu))
+            self._monitors['cpu'].source.show_status()
 
     def run(self, commandline):
         self._log.info("Starting metadata measurement with verbose {} and commandline <{}>".format(
@@ -235,7 +233,7 @@ def main():
         return
 
     for monname,monconfig in args.monitors:
-        m.add_monitor(monname, _load_monitor(monname, monconfig))
+        m.add_monitor(_load_monitor(monname, monconfig))
 
     m.run(args.commandline)
 
