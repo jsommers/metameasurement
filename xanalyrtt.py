@@ -5,10 +5,12 @@ from math import isinf
 
 def printstats(name, xlist):
     print("{}".format(name))
-    print("\tmean: {}".format(mean(xlist)))
+    if len(xlist) >= 1:
+        print("\tmean: {}".format(mean(xlist)))
     if len(xlist) >= 2:
         print("\tstdev: {}".format(stdev(xlist)))
-    print("\tmedian: {}".format(median(xlist)))
+    if len(xlist) >= 1:
+        print("\tmedian: {}".format(median(xlist)))
 
 def analyze(key, xdict):
     print("Analyzing {} ({})".format(key, xdict['probe_config']))
