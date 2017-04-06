@@ -15,6 +15,19 @@ function pgset() {
 
 # Config Start Here -----------------------------------------------------------
 
+if [ -z $1 ]; then
+    echo "Need argument (kpps)"
+    exit
+fi
+
+duration=10
+
+pps=$(($1*1000))
+delay=$((1000000000/$pps))
+count=$(($duration*$pps))
+
+echo "Sending rate: $pps pps"
+
 
 # thread config
 # One CPU means one thread. One CPU example. We add eth1, eth2 respectivly.
@@ -30,11 +43,9 @@ CLONE_SKB="clone_skb 0"
 # NIC adds 4 bytes CRC
 PKT_SIZE="pkt_size 60"
 
-# COUNT 0 means forever
-#COUNT="count 0"
-#COUNT="count 10000000"
-COUNT="count 3"
-DELAY="delay 10000" # nanosec
+DELAY="delay $delay"
+COUNT="count $count"
+
 
 PGDEV=/proc/net/pktgen/em2
   echo "Configuring $PGDEV"
