@@ -266,7 +266,7 @@ class RTTProbeSource(DataSource):
         p = pcapffi.PcapLiveDevice.create(ifname)
         p.snaplen = 128
         p.set_promiscuous(True)
-        p.set_timeout(10)
+        p.set_timeout(100)
 
         # choose the "best" timestamp available:
         # highest number up to 3 (don't use unsynced adapter stamps)
@@ -285,6 +285,9 @@ class RTTProbeSource(DataSource):
             self._log.info("Using nanosecond timestamp precision.")
         except:
             self._log.info("Using microsecond timestamp precision.")
+
+        if sys.platform == 'linux':
+            p.set_immediate_mode(True)
 
         w = p.activate()
         if w != 0:
@@ -328,39 +331,42 @@ class RTTProbeSource(DataSource):
         asyncio.ensure_future(self._emitprobe(self._dest))            
 
     def _packet_arrival_callback(self):
+        # while loop is here to handle limitations on some platforms
+        # with using select/poll with bpf
         while True:
             p = self._pcap.recv_packet_or_none()
             if p is None:
-                break
+                return
 
             name = self._pcap.name
             pkt = decode_packet(self._pcap.dlt, p.raw)
             ts = p.timestamp
             ptup = (name,ts,pkt)
 
-            if pkt.has_header(Arp) and \
-              pkt[Arp].operation == ArpOperation.Reply: 
+            if pkt.has_header(Arp) and pkt[Arp].operation == ArpOperation.Reply: 
                 a = pkt[Arp]
                 self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
+                continue
             elif pkt.has_header(ICMP):
-                self._log.debug("Got ICMP: {}".format(pkt))
-                if (pkt[ICMP].icmptype in (ICMPType.EchoReply,ICMPType.EchoRequest) and \
-                    pkt[ICMP].icmpdata.identifier == self._pktident):
-
+                if (pkt[ICMP].icmptype in \
+                        (ICMPType.EchoReply,ICMPType.EchoRequest) and \
+                        pkt[ICMP].icmpdata.identifier == self._pktident):
                     seq = pkt[ICMP].icmpdata.sequence
                     direction = ProbeDirection.Outgoing 
                     if pkt[ICMP].icmptype == ICMPType.EchoReply:
                         direction = ProbeDirection.Incoming
-                        # ignore Echo Reply if src addr doesn't match our intended dest
+                        # ignore Echo Reply if src addr doesn't match 
+                        # our intended dest
                         if pkt[IPv4].src != self._dest:
                             continue
                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt[IPv4].ttl,direction))
+                    return
                 elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
                     p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
                     origttl = self._infer_orig_ttl(pkt[IPv4].ttl)
-                    self._log.debug("Packet carcass: {}".format(p))
                     if p.has_header(self._probehelper.klass):
-                        # ttl stuffed into ipid of previously sent pkt is unreliable
+                        # ttl stuffed into ipid of previously sent 
+                        # pkt is unreliable
                         seq, ident = self._probehelper.decode_carcass(p)
                         if ident == self._pktident and p[IPv4].dst == self._dest:
                             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Incoming))
