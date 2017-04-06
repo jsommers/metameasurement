@@ -404,10 +404,8 @@ class RTTProbeSource(DataSource):
     async def _do_arp(self, ethsrc, ipsrc, dst, intf):
         ethdst = self._arp_cache.lookup(dst)
         if ethdst is not None:
-            self._log.debug("ARP cache hit")
             return ethdst
 
-        self._log.debug("ARP cache miss; sending req for {} ({})".format(dst))
         last_send = 0
         left_to_send = 5 # 5 attempts, wait 1 sec each
         ethdst = None

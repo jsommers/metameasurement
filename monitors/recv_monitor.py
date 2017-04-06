@@ -84,7 +84,10 @@ class PcapReceiverSource(DataSource):
             self._log.info("Using microsecond timestamp precision.")
 
         if sys.platform == 'linux':
-            p.set_immediate_mode(True)
+            try:
+                p.set_immediate_mode(True)
+            except:
+                pass
 
         w = p.activate()
         if w != 0:
@@ -106,7 +109,6 @@ class PcapReceiverSource(DataSource):
     def _packet_arrival_callback(self):
         p = self._pcap.recv_packet_or_none()
         if p is None:
-            self._log.debug("Got arrival callback, but no packet?!")
             return
 
         ts = p.timestamp
