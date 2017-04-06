@@ -20,7 +20,7 @@ if [ -z $1 ]; then
     exit
 fi
 
-duration=10
+duration=60
 
 pps=$(($1*1000))
 delay=$((1000000000/$pps))
