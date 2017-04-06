@@ -287,7 +287,11 @@ class RTTProbeSource(DataSource):
             self._log.info("Using microsecond timestamp precision.")
 
         if sys.platform == 'linux':
-            p.set_immediate_mode(True)
+            # api call doesn't exist everywhere; just ignore if we can't do it
+            try:
+                p.set_immediate_mode(True)
+            except:
+                pass
 
         w = p.activate()
         if w != 0:
@@ -301,10 +305,11 @@ class RTTProbeSource(DataSource):
         self._pcap = p
         if sys.platform == 'linux':
             # on Linux, create a separate packet/raw socket for sending due to
-            # linux-only limitations.  In particular, unlike other platforms (BSDish),
-            # we cannoot receive the same packet as sent on a device (and thus get
-            # hw timestamps on send).  Thus, we create a separate device for sending
-            # and can receive both outgoing (that we send) and incoming packets.
+            # linux-only limitations.  In particular, unlike other platforms 
+            # (BSDish), we cannot receive the same packet as sent on a device 
+            # (and thus get hw timestamps on send).  Thus, we create a 
+            # separate device for sending and can receive both outgoing (that 
+            # we send) and incoming packets.
             s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, EtherType.IPv4)
             s.bind((ifname, EtherType.IPv4))  
             self._sendsock = s
