@@ -8,8 +8,11 @@ if [[ ! -r calib_results.txt ]]; then
     CALIBRATE=1
 fi
 
-if [[ $CALIBRATE -eq "1" ]]; then
+if [[ ! -r ./wilee/wileE ]]; then
     make -C ./wilee
+fi
+
+if [[ $CALIBRATE -eq "1" ]]; then
     echo "Calibrating wilee..."
     ./wilee/wileE --calibrate | tee calib_results.txt
 fi
