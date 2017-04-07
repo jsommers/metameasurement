@@ -21,6 +21,11 @@ def _cleanup():
     global extproc
     for p in extproc:
         p.kill()
+        p.wait()
+    # be really sure that any stray processes are dead.
+    for c in ['wileE','iperf','dd']:
+        p = subprocess.Popen("killall {}".format(c), shell=True, stderr=subprocess.DEVNULL)
+        p.wait()
     extproc = []
 
 def get_gamma(probe_rate):
@@ -51,15 +56,13 @@ def callLoader(val, args):
         countVal = val * args.diskCalib
         command = "dd if=/dev/zero of={} bs=512 count={0}".format(int(countVal), args.outfile)
 
-    procs = []
-    procs.append(subprocess.Popen(command, shell=True))
+    _cleanup()
+    global extproc
+    extproc.append(subprocess.Popen(command, shell=True))
     if args.cpuNeeded or args.memNeeded:
         # n-1 more procs for cpu cores
         for i in range(1, args.cpuCores):
-            procs.append(subprocess.Popen(command, shell=True))
-    global extproc
-    extproc = procs
-    return procs
+            extproc.append(subprocess.Popen(command, shell=True))
 
 def main(args):
     if args.cpuNeeded or args.memNeeded:
