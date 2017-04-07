@@ -68,10 +68,10 @@ if __name__ == "__main__":
                         help='Off time in seconds.')
     parser.add_argument('-w', '--warmup', dest='warmup', type=int, \
                         help='Specifies warmup period is seconds.')
-    parser.add_argument('-c', '--cpu_calib', dest='cpuCalib', type=int, \
-                        help='#Loops to achieve 100% CPU utilization.')
-    parser.add_argument('-m', '--mem_calib', dest='memCalib', type=int, \
-                        help='#Loops to achieve 100% Memory utilization.')
+    parser.add_argument('-c', '--cpu_calib', dest='cpuCalib', type=int,
+                        help='Loops to achieve full CPU utilization.')
+    parser.add_argument('-m', '--mem_calib', dest='memCalib', type=int,
+                        help='Loops to achieve full memory utilization')
     parser.add_argument('-C', '--cpuNeeded', dest='cpuNeeded', type=float, \
                         help='Fraction of CPU utilization needed.')
     parser.add_argument('-M', '--memNeeded', dest='memNeeded', type=float, \
