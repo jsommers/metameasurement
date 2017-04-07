@@ -46,4 +46,4 @@ else
     echo "Specify c (cpu), m (mem), d (disk), or n (network)"
 fi
 
-killall wileE  #kill any runaway wileE processes
+killall wileE  2>/dev/null #kill any runaway wileE processes
