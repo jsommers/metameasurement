@@ -45,3 +45,5 @@ else
     echo "Invalid action $ACTION"
     echo "Specify c (cpu), m (mem), d (disk), or n (network)"
 fi
+
+killall wileE  #kill any runaway wileE processes
