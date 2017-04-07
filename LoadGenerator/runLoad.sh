@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # This needs to be run for the first time
 # Note down the following two values
 # Number of loops for 100% CPUness: 376 (-c flag)
