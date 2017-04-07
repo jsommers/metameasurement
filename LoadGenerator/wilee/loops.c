@@ -59,8 +59,8 @@ void calibrate()
 {
 	int retval;
 	if (WILEE_CALIBRATE) {
-		printf("Starting Calibration:\n");
-		printf("---------------------\n");
+		printf("#Starting Calibration:\n");
+		printf("#---------------------\n");
 	}
 	cpu_calibrate();
 	mem_calibrate();
@@ -119,11 +119,12 @@ void cpu_calibrate()
 	cpu_inner_loop(calib_loops, p);
 	gettimeofday(&ne, NULL);
 
-	printf("CPU Calibration\n");
-	printf("---------------\n");
+	printf("#CPU Calibration\n");
+	printf("#---------------\n");
 	//printf("Working set size used: %d\n", CPUNESS_INT_ARRAY_SIZE);
 	//printf("Time per iteration: %f\n", time_per_cpuness_iteration);
-	printf("Number of loops for 100%% CPUness: %lld (-c flag)\n", calib_loops);
+	printf("#Number of loops for 100%% CPUness: %lld (-c flag)\n", calib_loops);
+        printf("-c %lld\n", calib_loops);
 	//printf("Time for above loops: %ld\n", timeval_diff(&pr, &ne));
 }
 
@@ -165,7 +166,7 @@ int randomize_array(struct mem_arr_struct* arr, int siz)
 	int from, to;
 	struct mem_arr_struct *c;
 	int* index_arr = (int*)malloc(MEMNESS_INT_ARRAY_SIZE * sizeof(int));
-	printf("Randomizing...%d\n", MEMNESS_INT_ARRAY_SIZE);
+	printf("#Randomizing...%d\n", MEMNESS_INT_ARRAY_SIZE);
 
 	for (i = 0; i < MEMNESS_INT_ARRAY_SIZE; i++) {
 		index_arr[i] = i;
@@ -249,12 +250,13 @@ void mem_calibrate(void)
 	mem_inner_loop(calib_loops, calib_wss, p);
 	gettimeofday(&ne, NULL);
 
-	printf("------------------\n");
-	printf("Memory Calibration\n");
-	printf("------------------\n");
+	printf("#------------------\n");
+	printf("#Memory Calibration\n");
+	printf("#------------------\n");
 	//printf("Working set size used: %d\n", calib_wss);
 	//printf("Time per iteration: %f\n", time_per_memness_iteration);
-	printf("Number of loops for 100%% Memory-ness: %lld (-m flag)\n", calib_loops);
+	printf("#Number of loops for 100%% Memory-ness: %lld (-m flag)\n", calib_loops);
+        printf("-m %lld\n", calib_loops);
 	//printf("Time for above loops: %ld\n", timeval_diff(&pr, &ne));
 }
 
@@ -424,11 +426,15 @@ void do_loops(void)
 int main(int argc, char *argv[])
 {
 	char c;
-	system("clear");
+	// system("clear");
 	if (check_input_sanity(argc,argv) < 0) {
 		exit(1);
 	}
-	//calibrate();
+
+        if (WILEE_CALIBRATE) {
+	    calibrate();
+        }
+
 	if (CPUNESS_INPUT && MEMNESS_INPUT && LOOPLEN_INPUT && LOOPNUM_INPUT) {
 		//printf("Hit any key to start!\n");
 		//c = getchar();
