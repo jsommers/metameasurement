@@ -3,8 +3,9 @@ import sys
 import argparse
 import random
 import itertools
-from time import sleep
+from time import sleep, time
 import subprocess
+import multiprocessing
 import os
 import signal
 
@@ -20,12 +21,27 @@ def sighandler(*args):
 def _cleanup():
     global extproc
     for p in extproc:
-        p.kill()
-        p.wait()
+        try:
+            p.terminate()
+        except:
+            pass
+        try:
+            p.wait()
+        except:
+            pass
+
+        try:
+            p.join()
+        except:
+            pass
     # be really sure that any stray processes are dead.
     for c in ['wileE','iperf','dd']:
         p = subprocess.Popen("killall {}".format(c), shell=True, stderr=subprocess.DEVNULL)
         p.wait()
+    try:
+        os.unlink(args.outfile)
+    except:
+        pass
     extproc = []
 
 def get_gamma(probe_rate):
@@ -37,6 +53,18 @@ def get_gamma(probe_rate):
 def get_exponential(probe_rate):
     r = random.expovariate
     return r(probe_rate)
+
+def _do_dd(cmd, tval):
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    # keep calling dd until we get killed.  sad!
+    start = now = time()
+    while now-start < tval:
+        subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        now = time()
+    sys.exit(0)
 
 def callLoader(val, args):
     cpuLoadNeeded = 0.0
@@ -54,15 +82,19 @@ def callLoader(val, args):
         command = "iperf3 -c {0} -u -b {1:.2f}M -t 1".format(args.host, bandwidthVal)
     if args.diskNeeded:
         countVal = val * args.diskCalib
-        command = "dd if=/dev/zero of={} bs=512 count={}".format(args.outfile, int(countVal))
+        command = "dd if=/dev/zero of={} bs=1024 count={}".format(args.outfile, int(countVal))
 
     _cleanup()
     global extproc
-    extproc.append(subprocess.Popen(command, shell=True))
-    if args.cpuNeeded or args.memNeeded:
+    if args.cpuNeeded or args.memNeeded or args.netNeeded:
+        extproc.append(subprocess.Popen(command, shell=True))
         # n-1 more procs for cpu cores
         for i in range(1, args.cpuCores):
             extproc.append(subprocess.Popen(command, shell=True))
+    elif args.diskNeeded:
+        p = multiprocessing.Process(target=_do_dd, args=(command,val))
+        extproc.append(p)
+        p.start()
 
 def main(args):
     if args.cpuNeeded or args.memNeeded:
@@ -145,6 +177,7 @@ if __name__ == "__main__":
                         action='store_true', default=False,
                         help='Flag to set if disk load is needed.')
     parser.add_argument('-d', '--disk_calib', dest='diskCalib', type=int, 
+                        default=1000,
                         help='Count of blocks to write.')
     parser.add_argument('-f', '--outfile', dest='outfile', 
                         help='File to write to for disk load.')
