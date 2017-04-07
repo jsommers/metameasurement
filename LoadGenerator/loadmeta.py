@@ -54,7 +54,7 @@ def callLoader(val, args):
         command = "iperf3 -c {0} -u -b {1:.2f}M -t 1".format(args.host, bandwidthVal)
     if args.diskNeeded:
         countVal = val * args.diskCalib
-        command = "dd if=/dev/zero of={} bs=512 count={0}".format(args.outfile, int(countVal))
+        command = "dd if=/dev/zero of={} bs=512 count={}".format(args.outfile, int(countVal))
 
     _cleanup()
     global extproc
