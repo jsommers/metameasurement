@@ -28,10 +28,10 @@ if [[ -z $ACTION ]]; then
     exit
 fi
 
-WAIT="-w3"
-ONOFF="-s2 -e4"
+WAIT="-w2"
+ONOFF="-s1 -e5"
 CORES="-x2"
-RUNTIME="-t 1"
+RUNTIME="-t 3600"
 
 if [[ $ACTION == "c" ]]; then
     # -C is maximum CPUness
