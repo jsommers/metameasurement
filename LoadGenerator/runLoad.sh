@@ -31,21 +31,22 @@ fi
 WAIT="-w3"
 ONOFF="-s2 -e4"
 CORES="-x2"
+RUNTIME="-t 1"
 
 if [[ $ACTION == "c" ]]; then
     # -C is maximum CPUness
-    python3 loadmeta.py $ONOFF $WAIT $CPUMEMOPTS -C 1.0 -M 0.0 $CORES
+    python3 loadmeta.py $ONOFF $WAIT $CPUMEMOPTS -C 1.0 -M 0.0 $CORES $RUNTIME
 elif [[ $ACTION == "m" ]]; then
     # -M is maximum RAMness
-    python3 loadmeta.py $ONOFF $WAIT $CPUMEMOPTS -C 0.0 -M 1.0 $CORES
+    python3 loadmeta.py $ONOFF $WAIT $CPUMEMOPTS -C 0.0 -M 1.0 $CORES $RUNTIME
 elif [[ $ACTION == "d" ]]; then
     # run this for disk load
-    python3 loadmeta.py $ONOFF $WAIT -D -d 1000 -f /tmp/XXX
+    python3 loadmeta.py $ONOFF $WAIT -D -d 1000 -f /tmp/XXX $RUNTIME
     rm -f /tmp/XXX
 elif [[ $ACTION == "n" ]]; then
     # run this for network load
     # remember to start iPerf server with "iperf3 -s"
-    python3 loadmeta.py $ONOFF $WAIT -N -n 2 -i "127.0.0.1"
+    python3 loadmeta.py $ONOFF $WAIT -N -n 2 -i "127.0.0.1" $RUNTIME
 else 
     echo "Invalid action $ACTION"
     echo "Specify c (cpu), m (mem), d (disk), or n (network)"

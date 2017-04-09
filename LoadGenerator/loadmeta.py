@@ -107,7 +107,8 @@ def main(args):
     if args.dist == 'gamma':
         distfn = get_gamma
 
-    while not stop:
+    start = time()
+    while not stop :
         sys.stdout.flush()
         val = distfn(1/args.ontime)
         print("On for {:3.3f}s ... ".format(val), end='')
@@ -122,6 +123,11 @@ def main(args):
         val = distfn(1/args.offtime)
         print ("off for {}s".format(val))
         sleep(val)            # quiescent time
+
+        if args.runtime > 0:
+            now = time()
+            if now - start >= args.runtime:
+                break
 
         #for _ in itertools.repeat(None, args.ontime):
         #    val = None
@@ -183,6 +189,9 @@ if __name__ == "__main__":
                         help='File to write to for disk load.')
     parser.add_argument('-i', '--iperfServer', dest='host', 
                         help='iPerf3 server address.')
+    parser.add_argument('-t', '--runtime', dest='runtime', 
+                        default=0, type=int,
+      help='Amount of time to run (default: keep running until interrupted).')
     args = parser.parse_args()
 
     if not (args.cpuNeeded > 0.0 or args.memNeeded > 0.0 \
