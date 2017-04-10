@@ -44,15 +44,17 @@ def _cleanup():
         pass
     extproc = []
 
-def get_gamma(probe_rate):
+def get_gamma(mean):
     shape = 4
-    desired_mean = 1/probe_rate
+    desired_mean = 1/mean
     desired_scale = shape/desired_mean
     return random.gammavariate(shape,1/desired_scale)
 
-def get_exponential(probe_rate):
-    r = random.expovariate
-    return r(probe_rate)
+def get_exponential(mean):
+    return random.expovariate(mean)
+
+def get_const(mean):
+    return mean
 
 def _do_dd(cmd, tval):
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -106,6 +108,8 @@ def main(args):
     distfn = get_exponential
     if args.dist == 'gamma':
         distfn = get_gamma
+    elif args.dist == 'constant':
+        distfn = get_const
 
     start = time()
     while not stop :
@@ -129,27 +133,12 @@ def main(args):
             if now - start >= args.runtime:
                 break
 
-        #for _ in itertools.repeat(None, args.ontime):
-        #    val = None
-        #    if args.dist=="gamma":
-        #        val = get_gamma(1/3)
-        #        #print (val)
-        #    if args.dist=="exponential":
-        #        val = get_exponential(1/args.ontime)
-        #        #print (val)
-        #    print("...{:3.3f}".format(val), end='')
-        #    sys.stdout.flush()
-        #    callLoader(val, args)
-        #    sleep(1)
-        #print ("Off.")
-        #sleep(args.offtime)
-
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, sighandler)
     signal.signal(signal.SIGINT, sighandler)
 
     parser = argparse.ArgumentParser(description='Create artificial load')
-    parser.add_argument('--function', dest='dist', 
+    parser.add_argument('-F', '--function', dest='dist', 
                         default="exponential",
                         help='Distribution to be used for on/off period. '\
                         'Supported distributions are gamma and exponential.')

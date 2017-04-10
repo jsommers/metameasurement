@@ -6,7 +6,7 @@
 # NB: assumes that pyvenv is sourced correctly into current shell 
 # when this is executed
 
-DURATION="3600"
+DURATION="1800"
 INTF="eth0"
 TARGET="10.0.1.1"
 SLEEP="300"

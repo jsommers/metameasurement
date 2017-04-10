@@ -29,9 +29,9 @@ if [[ -z $ACTION ]]; then
 fi
 
 WAIT="-w2"
-ONOFF="-s1 -e5"
+ONOFF="-Fconstant -s10 -e30"
 CORES="-x2"
-RUNTIME="-t 3600"
+RUNTIME="-t 1800"
 
 if [[ $ACTION == "c" ]]; then
     # -C is maximum CPUness
