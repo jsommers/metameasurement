@@ -12,19 +12,25 @@ TARGET="10.0.1.1"
 SLEEP="300"
 
 # expt with artificial cpu load
-./LoadGenerator/runLoad.sh c &
+cd LoadGenerator 
+./runLoad.sh c &
+cd ..
 python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "sleep $DURATION" -f load_1h_cpuload -l
 killall python3
 sleep $SLEEP
 
 # expt with artificial mem load
-./LoadGenerator/runLoad.sh m &
+cd LoadGenerator 
+./runLoad.sh m &
+cd ..
 python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "sleep $DURATION" -f load_1h_memload -l 
 killall python3
 sleep $SLEEP
 
 # expt with artificial disk/io load
-./LoadGenerator/runLoad.sh m &
+cd LoadGenerator 
+./runLoad.sh d &
+cd ..
 python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "sleep $DURATION" -f load_1h_ioload -l 
 killall python3
 sleep $SLEEP

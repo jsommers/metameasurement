@@ -44,13 +44,15 @@ def _cleanup():
         pass
     extproc = []
 
-def get_gamma(mean):
+def get_gamma(rate):
+    mean = 1/rate
     shape = 4
     desired_mean = 1/mean
     desired_scale = shape/desired_mean
     return random.gammavariate(shape,1/desired_scale)
 
-def get_exponential(mean):
+def get_exponential(rate):
+    mean = 1/rate
     return random.expovariate(mean)
 
 def get_const(mean):
@@ -114,7 +116,7 @@ def main(args):
     start = time()
     while not stop :
         sys.stdout.flush()
-        val = distfn(1/args.ontime)
+        val = distfn(args.ontime)
         print("On for {:3.3f}s ... ".format(val), end='')
         sys.stdout.flush()
         callLoader(val, args) # start up process(es) to generate load
@@ -124,7 +126,7 @@ def main(args):
         if stop:              # check if we've been asked to stop 
             break
 
-        val = distfn(1/args.offtime)
+        val = distfn(args.offtime)
         print ("off for {}s".format(val))
         sleep(val)            # quiescent time
 
