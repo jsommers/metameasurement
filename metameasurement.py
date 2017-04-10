@@ -15,7 +15,7 @@ import importlib
 VERSION = '2017.4.1'
 
 class MetadataOrchestrator(object):
-    def __init__(self, debug, quiet, fileprefix, 
+    def __init__(self, debug, quiet, fileprefix, filebase,
                  logfile=False, statusinterval=5):
         self._asyncloop = asyncio.SelectorEventLoop()
         asyncio.set_event_loop(self._asyncloop)
@@ -29,6 +29,7 @@ class MetadataOrchestrator(object):
         self._done = False
         self._warmcooltime = 2
         self._fileprefix = fileprefix
+        self._filebase = filebase
         self._toolproc = None
         self._starttime = time()
         self._metadict = {}
@@ -91,6 +92,8 @@ class MetadataOrchestrator(object):
             json.dump(self._metadict, outfile)
 
     def _make_filebase(self):
+        if self._filebase:
+            return self._filebase
         timestr = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
         return "{}_{}".format(self._fileprefix, timestr)
 
@@ -200,6 +203,10 @@ def main():
                         default='metadata', metavar='FILE_PREFIX',
                         help='Prefix for filename that includes metadata for '
                              'a given run.  default="metadata".')
+    parser.add_argument('-F', '--filebase', dest='filebase', type=str,
+                        default=None, metavar='FILE_NAME',
+                        help='Set the output file basename to this; do not include '
+                        'any additional text in the filename (i.e., date/time)')
     parser.add_argument('-l', '--logfile', dest='logfile', default=False,
                         action='store_true', 
                         help='Write log entries to a file (with a similar '
@@ -225,7 +232,7 @@ def main():
                         'Valid monitors={}'.format(','.join(monlist)))
     args = parser.parse_args()
 
-    m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.logfile, args.statusinterval)
+    m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.filebase, args.logfile, args.statusinterval)
     if not args.monitors:
         print("No monitors configured.  Must specify at least one -M option.", file=sys.stderr)
         print("Valid monitors: {}\n".format(','.join(monlist)))
