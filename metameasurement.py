@@ -230,7 +230,25 @@ def main():
                         action='append',
                         help='Select monitors to include.  Default=None. '
                         'Valid monitors={}'.format(','.join(monlist)))
+    parser.add_argument('-C', '--cpu', dest='cpuaffinity',
+                        type=int, default=None,
+                        help='Set the CPU affinity to the specified CPU number.'
+                        'Default is not to set CPU affinity.')
     args = parser.parse_args()
+
+    if args.cpuaffinity:
+        if hasattr(os, 'sched_getaffinity'):
+            pid = os.getpid()
+            cpuset = os.sched_getaffinity(pid)
+            if args.cpuaffinity in cpuset:
+                logging.getLogger('mm').info('Setting CPU affinity to {}'.format(args.cpuaffinity))
+                os.sched_setaffinity(pid, {args.cpuaffinity})
+            else:
+                logging.getLogger('mm').warn('CPU number {} not in CPU set for affinity setting.'.format(args.cpuaffinity))
+                logging.getLogger('mm').warn('CPU set available: {}'.format(cpuset))
+                sys.exit()
+        else:
+            logging.getLogger('mm').warn("CPU argument specified but OS doesn't support sched_setaffinity call")
 
     m = MetadataOrchestrator(args.verbose, args.quiet, args.fileprefix, args.filebase, args.logfile, args.statusinterval)
     if not args.monitors:
