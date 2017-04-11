@@ -1,7 +1,7 @@
 import sys
 from abc import abstractmethod, abstractproperty
 import asyncio
-from time import sleep, time
+from time import time
 import re
 import socket
 import signal
@@ -146,6 +146,9 @@ class SystemObserver(object):
         self._intervalfn = intervalfn
 
     async def __call__(self):
+        evl = asyncio.get_event_loop()
+        compensate = 0
+
         while True:
             # call the data source to take a sample
             self._source()
@@ -154,10 +157,14 @@ class SystemObserver(object):
                 asyncio.Task.current_task().cancelled():
                 break
 
+            sleeptime = max(0, self._intervalfn() - compensate)
+            before = evl.time()
             try:
-                await asyncio.sleep(self._intervalfn())
+                await asyncio.sleep(sleeptime)
             except asyncio.CancelledError:
                 break
+            actualsleep = evl.time() - before 
+            compensate = max(actualsleep - sleeptime, 0)
 
     def stop(self):
         self._done = True
@@ -175,44 +182,3 @@ class SystemObserver(object):
     def metadata(self):
         return self._source.metadata()
 
-
-#def sig_catch(*args):
-#    for t in asyncio.Task.all_tasks():
-#        t.cancel()
-#    asyncio.get_event_loop().call_later(0.5, stop_world)
-#
-#def stop_world():
-#    asyncio.get_event_loop().stop()
-#
-#
-#if __name__ == '__main__':
-#    loop = asyncio.get_event_loop()
-#    loop.add_signal_handler(signal.SIGINT, sig_catch)
-#
-#    cpu = SystemObserver(CPUDataSource(), lambda: random.expovariate(1.0))
-#    f1 = asyncio.ensure_future(cpu())
-#
-#    io = SystemObserver(IODataSource(), lambda: random.uniform(2.0,2.0))
-#    f2 = asyncio.ensure_future(io())
-#
-#    net = SystemObserver(NetIfDataSource('en0'), lambda: random.uniform(2.0, 2.0))
-#    f3 = asyncio.ensure_future(net())
-#
-#    mem = SystemObserver(MemoryDataSource(), lambda: random.uniform(2.0, 2.0))
-#    f4 = asyncio.ensure_future(mem())
-#
-#    try:
-#        loop.run_forever()
-#    except:
-#        pass
-#    finally:
-#        loop.close()
-#
-#    from statistics import mean, stdev, median, variance
-#
-#    print(cpu.results.all())
-#    print(io.results.all())
-#    print(net.results.all())
-#    print(mem.results.summary(max))
-#    print(net.results.compute(max, 'en0_dropin'))
-#    print(mem.results.compute(mean, 'percent'))
