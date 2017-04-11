@@ -82,8 +82,8 @@ def callLoader(val, args):
     if args.cpuNeeded > 0.0 or args.memNeeded > 0.0:
         command = "./wilee/wileE -C {0} -M {1} -n 1 -c {2} -m {3} --no_papi".format(args.cpuNeeded, args.memNeeded, cpuLoadNeeded, memLoadNeeded)
     if args.netNeeded:
-        bandwidthVal = val * args.netCalib
-        command = "iperf3 -c {0} -u -b {1:.2f}M -t 1".format(args.host, bandwidthVal)
+        bandwidthVal = args.netCalib
+        command = "iperf3 -c {0} -u -b {1:.2f}M -t {}".format(args.host, bandwidthVal, args.ontime)
     if args.diskNeeded:
         countVal = val * args.diskCalib
         command = "dd if=/dev/zero of={} bs=1024 count={}".format(args.outfile, int(countVal))
@@ -114,6 +114,9 @@ def main(args):
         distfn = get_const
 
     start = time()
+    val = distfn(args.offtime)
+    print ("Starting off for {}s".format(val))
+    sleep(val)            # quiescent time
     while not stop :
         sys.stdout.flush()
         val = distfn(args.ontime)
