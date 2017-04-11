@@ -233,7 +233,7 @@ def main():
     parser.add_argument('-C', '--cpu', dest='cpuaffinity',
                         type=int, default=None,
                         help='Set the CPU affinity to the specified CPU number.'
-                        'Default is not to set CPU affinity.')
+                        '  Default is not to set CPU affinity.')
     args = parser.parse_args()
 
     if args.cpuaffinity:

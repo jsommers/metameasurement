@@ -11,14 +11,18 @@ class CPUDataSource(DataSource):
     def __init__(self):
         DataSource.__init__(self)
         self._results = ResultsContainer()
-        x = cpu_times_percent() # as per psutil docs: first call will give rubbish 
+        cpulist = cpu_times_percent(percpu=True) # as per psutil docs: first call gives rubbish 
         self._log = logging.getLogger('mm')
+        x = cpulist.pop(0)
         self._keys = [ a for a in dir(x) if not a.startswith('_') and \
             not callable(getattr(x,a)) ]
 
     def __call__(self):
-        sample = cpu_times_percent()
-        self._results.add_result({ k:getattr(sample,k) for k in self._keys })
+        sample = cpu_times_percent(percpu=True)
+        result = { "cpu{}_{}".format(i,k):getattr(sample[i],k) for i in range(len(sample)) \
+            for k in self._keys }
+        result['idle'] = mean([ getattr(x, 'idle') for x in sample ])
+        self._results.add_result(result)
 
     @property
     def name(self):
