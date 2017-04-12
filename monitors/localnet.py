@@ -113,6 +113,9 @@ def get_interface_info(ifname_list):
 
         for addrinfo in ifinfo[pcapdev.name]:
             if addrinfo.family == socket.AddressFamily.AF_INET:
+                xaddr = IPv4Address(addrinfo.address)
+                if xaddr.is_link_local: # ignore any link-local addrs
+                    continue
                 ipaddr = IPv4Address(addrinfo.address)
                 mask = IPv4Address(addrinfo.netmask)
             elif addrinfo.family == layer2addrfam:
