@@ -597,10 +597,12 @@ def create(config):
         if 'maxttl' in config:
             logging.getLogger('mm').warn("Ignoring 'maxttl' config for 'ping' RTT monitor (pointless)")
             config.pop('maxttl')
+        maxttl = 0
 
         if 'allhops' in config:
             logging.getLogger('mm').warn("Ignoring 'allhops' config for 'ping' RTT monitor (pointless)")
             config.pop('allhops')
+        allhops = False
 
     rate = float(config.pop('rate', 1))
     if config:

@@ -3,7 +3,7 @@ import logging
 
 from psutil import net_io_counters
 from monitor_base import DataSource, SystemObserver, ResultsContainer, \
-    _compute_diff_with_wrap, _periodic_observer
+    _compute_diff_with_wrap, _periodic_observer, ConfigurationError
 
 
 class NetIfDataSource(DataSource):
@@ -20,7 +20,11 @@ class NetIfDataSource(DataSource):
             self._nics = list(x.keys())
         else:
             self._nics = [ n for n in x.keys() if n in nics_of_interest ]
+        if not self._nics:
+            raise ConfigurationError("Bad interface names specified for netstat monitor: {}".format(', '.join(nics_of_interest)))
+
         d1 = list(self._nics)[0]
+
         self._keys = [ a for a in dir(x[d1]) if not a.startswith('_') and \
             not callable(getattr(x[d1],a)) ]
         self._results = ResultsContainer()
