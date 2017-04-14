@@ -144,9 +144,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Create artificial load')
     parser.add_argument('-F', '--function', dest='dist', 
-                        default="exponential",
+                        default="constant",
                         help='Distribution to be used for on/off period. '\
-                        'Supported distributions are gamma and exponential.')
+                        'Supported distributions are constant, gamma, exponential.')
     parser.add_argument('-s', '--ontime', dest='ontime', type=int, 
                         default=1,
                         help='On time in seconds.')
@@ -201,7 +201,7 @@ if __name__ == "__main__":
         print("You asked for memory load, but mem calibration needs to be given")
     elif args.diskNeeded and (args.diskCalib is None or args.outfile is None):
         print("You asked for disk load, but you need to specify #blocks and location to write")
-    elif args.netNeeded and (args.netCalib is None or args.host is None):
+    elif args.netNeeded and (args.netbw is None or args.host is None):
         print("You asked for net load, but you need to specify bw and target host")
     else:
         main(args)
