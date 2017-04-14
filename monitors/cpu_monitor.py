@@ -2,7 +2,8 @@ from statistics import mean
 import logging
 
 from psutil import cpu_times_percent
-from monitor_base import DataSource, SystemObserver, ResultsContainer, _periodic_observer
+from monitor_base import DataSource, SystemObserver, ResultsContainer, \
+    _periodic_observer, ConfigurationError
 
 class CPUDataSource(DataSource):
     '''
@@ -38,4 +39,8 @@ class CPUDataSource(DataSource):
 
 
 def create(configdict):
-    return SystemObserver(CPUDataSource(), _periodic_observer(configdict.get('interval', 1)))
+    interval = configdict.pop('interval', 1)
+    if len(configdict):
+        raise ConfigurationError('Unrecognized configuration parameters: {}'.format(configdict))
+
+    return SystemObserver(CPUDataSource(), _periodic_observer(interval))

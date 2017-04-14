@@ -3,7 +3,7 @@ import logging
 
 from psutil import disk_io_counters
 from monitor_base import SystemObserver, DataSource, ResultsContainer, \
-    _compute_diff_with_wrap, _periodic_observer
+    _compute_diff_with_wrap, _periodic_observer, ConfigurationError
 
 class IODataSource(DataSource):
     '''
@@ -43,8 +43,11 @@ class IODataSource(DataSource):
         pass
 
 
-def create(config):
+def create(configdict):
     # could pass in list of devices that we want to monitor.
     # for now, just monitor all
-    return SystemObserver(IODataSource(), _periodic_observer(config.get('interval', 1)))
+    interval = configdict.pop('interval', 1)
+    if len(configdict):
+        raise ConfigurationError('Unrecognized configuration parameters: {}'.format(configdict))
 
+    return SystemObserver(IODataSource(), _periodic_observer(interval))

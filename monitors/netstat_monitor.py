@@ -48,10 +48,11 @@ class NetIfDataSource(DataSource):
         pass
 
 
-def create(config):
-    interval = config.pop('interval', 1)
-    if config:
-        source = NetIfDataSource(*list(config.keys()))
+def create(configdict):
+    interval = configdict.pop('interval', 1)
+    if configdict:
+        source = NetIfDataSource(*list(configdict.keys()))
     else:
         source = NetIfDataSource()
+    logging.getLogger('mm').info("Treating configuration parameters {} as interface names".format(list(configdict.keys())))
     return SystemObserver(source, _periodic_observer(interval))

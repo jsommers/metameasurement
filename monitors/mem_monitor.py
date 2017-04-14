@@ -2,7 +2,8 @@ import logging
 from statistics import mean
 
 from psutil import virtual_memory
-from monitor_base import DataSource, _periodic_observer, SystemObserver, ResultsContainer
+from monitor_base import DataSource, _periodic_observer, SystemObserver, \
+    ResultsContainer, ConfigurationError
 
 class MemoryDataSource(DataSource):
     '''
@@ -33,5 +34,9 @@ class MemoryDataSource(DataSource):
         pass
 
 
-def create(config):
-    return SystemObserver(MemoryDataSource(), _periodic_observer(config.get('interval', 1)))
+def create(configdict):
+    interval = configdict.pop('interval', 1)
+    if len(configdict):
+        raise ConfigurationError('Unrecognized configuration parameter: {}'.format(configdict))
+
+    return SystemObserver(MemoryDataSource(), _periodic_observer(interval))

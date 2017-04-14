@@ -149,6 +149,12 @@ class SystemObserver(object):
         evl = asyncio.get_event_loop()
         compensate = 0
 
+        # stagger startup, randomly over 1sec
+        try:
+            await asyncio.sleep(random.random())
+        except asyncio.CancelledError:
+            return
+
         while True:
             # call the data source to take a sample
             self._source()

@@ -585,16 +585,26 @@ def create(config):
         protostr = config.pop('proto', 'icmp')
         if protostr not in ['icmp','udp','tcp']:
             raise ConfigurationError("Bad hoplimited protocol {}.  Must be one of 'icmp', 'udp', or 'tcp' (default=icmp)".format(protostr))
+        maxttl = int(config.pop('maxttl', 1))
+        maxttl = max(maxttl, 1) 
+        allhops = bool(config.pop('allhops', True))
     else:
+        if 'proto' in config:
+            logging.getLogger('mm').warn("Ignoring 'proto' config for 'ping' RTT monitor (must be icmp)")
+            config.pop('proto')
         protostr = 'icmp'
 
-    maxttl = int(config.pop('maxttl', 1))
-    maxttl = max(maxttl, 1) 
-    allhops = bool(config.pop('allhops', True))
+        if 'maxttl' in config:
+            logging.getLogger('mm').warn("Ignoring 'maxttl' config for 'ping' RTT monitor (pointless)")
+            config.pop('maxttl')
+
+        if 'allhops' in config:
+            logging.getLogger('mm').warn("Ignoring 'allhops' config for 'ping' RTT monitor (pointless)")
+            config.pop('allhops')
 
     rate = float(config.pop('rate', 1))
     if config:
-        raise ConfigurationError("Unused configuration items for RTT monitor: {}".format(config))
+        raise ConfigurationError("Unrecognized configuration items for RTT monitor: {}".format(config))
     prober = RTTProbeSource(interface, probetype, protostr, 
         maxttl, allhops, dest)
     return SystemObserver(prober, _gamma_observer(rate))
