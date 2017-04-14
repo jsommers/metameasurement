@@ -29,9 +29,11 @@ if [[ -z $ACTION ]]; then
 fi
 
 WAIT="-w2"
-ONOFF="-Fconstant -s10 -e30"
+ONOFF="-Fconstant -s30 -e30"
 CORES="-x2"
-RUNTIME="-t 1800"
+RUNTIME="-t 900"
+NETLOADARGS="-i 10.100.100.2 -N -n 1G"
+NETPREFIX='' # ssh, if necessary
 
 if [[ $ACTION == "c" ]]; then
     # -C is maximum CPUness
@@ -46,7 +48,7 @@ elif [[ $ACTION == "d" ]]; then
 elif [[ $ACTION == "n" ]]; then
     # run this for network load
     # remember to start iPerf server with "iperf3 -s"
-    python3 loadmeta.py $ONOFF $WAIT -N -n 2 -i "127.0.0.1" $RUNTIME
+    python3 loadmeta.py $ONOFF $WAIT -I '$NETPREFIX' $NETLOADARGS $RUNTIME
 else 
     echo "Invalid action $ACTION"
     echo "Specify c (cpu), m (mem), d (disk), or n (network)"
