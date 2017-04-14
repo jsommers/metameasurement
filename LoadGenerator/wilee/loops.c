@@ -57,7 +57,6 @@ long timeval_diff(struct timeval* p, struct timeval* n)
  */
 void calibrate()
 {
-	int retval;
 	if (WILEE_CALIBRATE) {
 		printf("#Starting Calibration:\n");
 		printf("#---------------------\n");
@@ -128,9 +127,9 @@ void cpu_calibrate()
 	//printf("Time for above loops: %ld\n", timeval_diff(&pr, &ne));
 }
 
-int mem_inner_loop(long cal_len, long cal_siz, int p)
+int mem_inner_loop(long cal_len, long cal_siz)
 {
-	int i, j, k, l, tmp, jnk = 0;
+	int i, j, l, tmp, jnk = 0;
 	long sum;
 	l = MEMNESS_INT_ARRAY_SIZE - 1;
 	struct mem_arr_struct *curr = &memness_array[l];
@@ -139,8 +138,6 @@ int mem_inner_loop(long cal_len, long cal_siz, int p)
 		sum = 0;
 		for (i = 0; i < cal_siz; i++) {
 			tmp = 1;
-//			for (k = 0; k < p; k++)
-//				tmp *= curr->num;
 			tmp += curr->num;
 			curr = curr->next;
 			if (curr == NULL) {
@@ -161,7 +158,7 @@ int mem_inner_loop(long cal_len, long cal_siz, int p)
  */
 int randomize_array(struct mem_arr_struct* arr, int siz)
 {
-	int i, j, curr_index = 0, next_index, start_index, tmp;
+	int i, curr_index = 0, next_index, start_index, tmp;
 	int limit = MEMNESS_INT_ARRAY_SIZE;
 	int from, to;
 	struct mem_arr_struct *c;
@@ -208,14 +205,13 @@ int randomize_array(struct mem_arr_struct* arr, int siz)
 
 void mem_calibrate(void)
 {
-	int i, p;
+	int i=0;
 // Limits for interval_rand()
 	int lr = 0, hr = 100;
 // No of loops to calibrate with.
 	int calib_length = MEM_CALIBRATION_LOOPS;
 // Working set size used for calibration.
 	int calib_wss = MEM_CALIBRATION_WSS;
-	long long start_usec, end_usec;
 // No of loops needed to achieve loop_length
 	long long calib_loops;
 
@@ -239,7 +235,7 @@ void mem_calibrate(void)
  */
 
 	gettimeofday(&pr, NULL);
-	mem_inner_loop(calib_length, calib_wss, p);
+	mem_inner_loop(calib_length, calib_wss);
 	gettimeofday(&ne, NULL);
 	time_per_memness_iteration = (float)(timeval_diff(&pr, &ne))
 			 / (float)calib_length;
@@ -247,7 +243,7 @@ void mem_calibrate(void)
 //	calib_loops = 0;
 
 	gettimeofday(&pr, NULL);
-	mem_inner_loop(calib_loops, calib_wss, p);
+	mem_inner_loop(calib_loops, calib_wss);
 	gettimeofday(&ne, NULL);
 
 	printf("#------------------\n");
@@ -267,7 +263,6 @@ void mem_calibrate(void)
  */
 void sleep_calibrate()
 {
-	long long start_usec, end_usec;
 	int i, min_gr = 1000;
 	float sc;
 
@@ -291,7 +286,7 @@ void sleep_calibrate()
 
 int check_input_sanity(int argc, char* argv[])
 {
-	int n = argc, i;
+	int n = argc;
 	while (n > 1) {
 		if (!strcmp(argv[argc - n + 1], "--calibrate")) {
 			WILEE_CALIBRATE = 1;
@@ -387,10 +382,9 @@ out:
  */
 void do_loops(void)
 {
-	int i, j;
+	int i;
 	float cpu_length, mem_length, io_length;
 	int cpu_loops, mem_loops;
-	long long start_usec, end_usec;
 
 	cpu_length = loop_length * cpuness;
 	mem_length = loop_length * memness;
@@ -401,7 +395,7 @@ void do_loops(void)
 	gettimeofday(&pr, NULL);
 	for (i = 0; i < num_loops; i++) {
 		cpu_inner_loop(cpu_loops, p);
-		mem_inner_loop(mem_loops, MEM_CALIBRATION_WSS, p);
+		mem_inner_loop(mem_loops, MEM_CALIBRATION_WSS);
 		if (io_length)
 			usleep((int)(io_length / io_scale));
 	}
@@ -425,8 +419,6 @@ void do_loops(void)
 
 int main(int argc, char *argv[])
 {
-	char c;
-	// system("clear");
 	if (check_input_sanity(argc,argv) < 0) {
 		exit(1);
 	}
@@ -436,9 +428,7 @@ int main(int argc, char *argv[])
         }
 
 	if (CPUNESS_INPUT && MEMNESS_INPUT && LOOPLEN_INPUT && LOOPNUM_INPUT) {
-		//printf("Hit any key to start!\n");
-		//c = getchar();
 		do_loops();
 	}
-//	c = getchar();
+        return 0;
 }
