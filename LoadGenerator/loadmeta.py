@@ -82,8 +82,7 @@ def callLoader(val, args):
     if args.cpuNeeded > 0.0 or args.memNeeded > 0.0:
         command = "./wilee/wileE -C {0} -M {1} -n 1 -c {2} -m {3} --no_papi".format(args.cpuNeeded, args.memNeeded, cpuLoadNeeded, memLoadNeeded)
     if args.netNeeded:
-        bandwidthVal = args.netbw
-        command = "{} iperf3 -c {} -u -b {:.2f}M -t {}".format(args.iperfremote, args.host, bandwidthVal, args.ontime)
+        command = "{} iperf3 -c {} -u -b {} -t {}".format(args.iperfremote, args.host, args.netbw, args.ontime)
     if args.diskNeeded:
         countVal = val * args.diskCalib
         command = "dd if=/dev/zero of={} bs=1024 count={}".format(args.outfile, int(countVal))
@@ -171,8 +170,8 @@ if __name__ == "__main__":
     parser.add_argument('-N', '--netNeeded', dest='netNeeded', 
                         action='store_true', default=False,
                         help='Flag to set if network traffic is needed.')
-    parser.add_argument('-n', '--net_calib', dest='netbw', type=float, 
-                        help='Specifies the max. bandwidth.')
+    parser.add_argument('-n', '--net_calib', dest='netbw', type=str, 
+                        help='Specifies the max. bandwidth (can use iperf bw-stye args).')
     parser.add_argument('-D', '--diskNeeded', dest='diskNeeded', 
                         action='store_true', default=False,
                         help='Flag to set if disk load is needed.')
