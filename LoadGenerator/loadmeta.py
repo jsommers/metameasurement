@@ -82,7 +82,7 @@ def callLoader(val, args):
     if args.cpuNeeded > 0.0 or args.memNeeded > 0.0:
         command = "./wilee/wileE -C {0} -M {1} -n 1 -c {2} -m {3} --no_papi".format(args.cpuNeeded, args.memNeeded, cpuLoadNeeded, memLoadNeeded)
     if args.netNeeded:
-        bandwidthVal = args.netbw:
+        bandwidthVal = args.netbw
         command = "{} iperf3 -c {} -u -b {:.2f}M -t {}".format(args.iperfremote, args.host, bandwidthVal, args.ontime)
     if args.diskNeeded:
         countVal = val * args.diskCalib
