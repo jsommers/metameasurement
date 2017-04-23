@@ -15,6 +15,7 @@ SLEEP="30"
 # NB: this scamper command takes approx 2.5 minutes (150 sec)
 LOADNAME="load1"
 MONITOR=hostname
+WARTSOUT=${LOADNAME}.warts
 
 # expt with artificial cpu load
 cd LoadGenerator 
