@@ -21,7 +21,7 @@ cd LoadGenerator
 ./runLoad.sh c &
 cd ..
 #python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "$COMMAND" -F $LOADNAME_cpuload -l
-python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F $LOADNAME_cpuload -l 
+python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F ${LOADNAME}_cpuload -l 
 killall python3
 sleep $SLEEP
 
@@ -29,8 +29,8 @@ sleep $SLEEP
 cd LoadGenerator 
 ./runLoad.sh m &
 cd ..
-#python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "$COMMAND" -F $LOADNAME_memload -l 
-python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F $LOADNAME_memload -l 
+#python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "$COMMAND" -F ${LOADNAME}_memload -l 
+python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F ${LOADNAME}_memload -l 
 killall python3
 sleep $SLEEP
 
@@ -38,8 +38,8 @@ sleep $SLEEP
 cd LoadGenerator 
 ./runLoad.sh d &
 cd ..
-# python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "$COMMAND" -F $LOADNAME_ioload -l 
-python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F $LOADNAME_ioload -l 
+# python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "$COMMAND" -F ${LOADNAME}_ioload -l 
+python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F ${LOADNAME}_ioload -l 
 killall python3
 sleep $SLEEP
 
@@ -47,8 +47,8 @@ sleep $SLEEP
 cd LoadGenerator 
 ./runLoad.sh n &
 cd ..
-# python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "$COMMAND" -F $LOADNAME_netload -l 
-python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F $LOADNAME_netload -l 
+# python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$TARGET -c "$COMMAND" -F ${LOADNAME}_netload -l 
+python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:maxttl=3:dest=$TARGET -c "scamper -c \"ping -P icmp-echo -c 30 -s 64\" -p 10 -w 5 -f Benchmarks/targets.txt -M $MONITOR -O warts -o $WARTSOUT" -F ${LOADNAME}_netload -l 
 killall python3
 sleep $SLEEP
 
