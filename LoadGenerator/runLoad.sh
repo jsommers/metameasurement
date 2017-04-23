@@ -43,8 +43,8 @@ elif [[ $ACTION == "m" ]]; then
     python3 loadmeta.py $ONOFF $WAIT $CPUMEMOPTS -C 0.0 -M 1.0 $CORES $RUNTIME
 elif [[ $ACTION == "d" ]]; then
     # run this for disk load
-    python3 loadmeta.py $ONOFF $WAIT -D -d 1000 -f /tmp/XXX $RUNTIME
-    rm -f /tmp/XXX
+    python3 loadmeta.py $ONOFF $WAIT -D -d 1000 -f /home/pi/XXX $RUNTIME
+    rm -f /home/pi/XXX
 elif [[ $ACTION == "n" ]]; then
     # run this for network load
     # remember to start iPerf server with "iperf3 -s"
