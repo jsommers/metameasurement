@@ -82,7 +82,8 @@ def callLoader(val, args):
     if args.cpuNeeded > 0.0 or args.memNeeded > 0.0:
         command = "./wilee/wileE -C {0} -M {1} -n 1 -c {2} -m {3} --no_papi".format(args.cpuNeeded, args.memNeeded, cpuLoadNeeded, memLoadNeeded)
     if args.netNeeded:
-        command = "{} iperf3 -c {} -u -b {} -t {}".format(args.iperfremote, args.host, args.netbw, args.ontime)
+        # command = "{} iperf3 -c {} -u -b {} -t {}".format(args.iperfremote, args.host, args.netbw, args.ontime)
+        command = "ssh root@10.42.42.3 /root/topifi.sh 20 {}".format(args.ontime)
     if args.diskNeeded:
         countVal = val * args.diskCalib
         command = "dd if=/dev/zero of={} bs=1024 count={}".format(args.outfile, int(countVal))
