@@ -31,7 +31,7 @@ fi
 WAIT="-w2"
 ONOFF="-Fconstant -s60 -e60"
 CORES="-x1"
-RUNTIME="-t 180"
+RUNTIME="-t 240"
 NETLOADARGS="-i 10.100.100.2 -N -n 1G"
 NETPREFIX='' # ssh, if necessary
 

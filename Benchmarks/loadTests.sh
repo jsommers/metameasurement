@@ -8,8 +8,9 @@
 
 INTF="eth0"
 TARGET="8.8.8.8"
+SCTARGET="198.41.0.4"
 SLEEP="30"
-LOADNAME="load1"
+LOADNAME="load2"
 MONITOR=`hostname`
 
 #METAARGS="-Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=${INTF}:type=hoplimited:maxttl=3:dest=${TARGET}"
@@ -38,7 +39,7 @@ for LTYPE in none cpu mem io net; do
     WARTSOUT=${LOADNAME}_${LTYPE}.warts
     echo "Starting SoMeta"
     date
-    python3 metameasurement.py ${METAARGS} -F ${LOADNAME}_${LTYPE} -l -c "scamper -c \"ping -P icmp-echo -c 180 -s 64\" -M ${MONITOR}  -o ${LOADNAME}_${LTYPE}.warts -O warts -i 8.8.8.8"
+    python3 metameasurement.py ${METAARGS} -F ${LOADNAME}_${LTYPE} -l -c "scamper -c \"ping -P icmp-echo -c 240 -s 64\" -M ${MONITOR}  -o ${LOADNAME}_${LTYPE}.warts -O warts -i ${SCTARGET}"
 
     killall python3
     sleep $SLEEP
