@@ -467,11 +467,13 @@ class RTTProbeSource(DataSource):
             self._probeseq = 1
 
     async def _ping_collector(self, fut):
-        def store_result(seq, origttl, usersend, wiresend, wirerecv):
+        def store_result(seq, origttl, usersend, wiresend, wirerecv, ipsrc=None):
             wirertt = wirerecv - wiresend
             result = {'rtt':wirertt, 'recv':wirerecv, 
                       'wiresend':wiresend, 'usersend':usersend,
                       'origttl':origttl, 'seq':seq }
+            if ipsrc is not None:
+                result['ipsrc'] = ipsrc
             if self._probetype == 'ping':
                 self._results.add_result(result)
             else:
@@ -500,7 +502,7 @@ class RTTProbeSource(DataSource):
 
             if key in outgoing and key in incoming:
                 store_result(seq, origttl, self._usersend.pop(key),
-                    outgoing.pop(key), incoming.pop(key))
+                    outgoing.pop(key), incoming.pop(key), src)
 
         for key in sorted(self._usersend.keys()):
             if isinstance(key, tuple):
