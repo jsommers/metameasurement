@@ -100,7 +100,13 @@ class MetadataOrchestrator(object):
     def _shutdown(self, future):
         self._log.debug("tool done; shutting down")
         if future:
-            self._log.debug("result: {}".format(future.result()))
+            fr = future.result()
+            self._log.debug("result: {}".format(fr))
+            if isinstance(fr, dict) and fr['returncode'] == 0:
+                self._log.info("External tool completed successfully (returncode=0)")
+            else:
+                self._log.error("External tool failed to complete successfully: {}".format(fr))
+
         self._asyncloop.call_later(self._warmcooltime, self._cleanup)
         self._done = True
         if self._toolproc and self._toolproc.returncode is None:
