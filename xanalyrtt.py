@@ -12,18 +12,28 @@ def printstats(name, xlist):
     if len(xlist) >= 1:
         print("\tmedian: {}".format(median(xlist)))
 
-def analyze(key, xdict):
+def analyze_rtt(key, xdict):
     print("Analyzing {} ({})".format(key, xdict['probe_config']))
     for rttkey in xdict.keys():
         if rttkey.startswith('ttl') or rttkey == 'ping':
             gatherandprint(rttkey, xdict[rttkey])
 
+def analyze_cpu(xli):
+    pass
+
+def analyze_mem(xli):
+    pass
+
+def analyze_netcounters(xli):
+    pass
+
 def gatherandprint(rkey, xlist):
     print("Results for {}".format(rkey))
-
-    lost = [ xd['send'] for ts,xd in xlist if isinf(xd['recv']) ]
-    rtt = [ xd['recv'] - xd['send'] for ts,xd in xlist if not isinf(xd['recv']) and not isinf(xd['send']) ]
-    sendtimes = [ xd['send'] for ts,xd in xlist if not isinf(xd['send']) ]
+    lost = [ xd['usersend'] for ts,xd in xlist \
+        if isinf(xd['wiresend']) or isinf(xd['wirerecv']) ]
+    rtt = [ xd['wirerecv'] - xd['wiresend'] for ts,xd in xlist \
+        if not isinf(xd['wirerecv']) and not isinf(xd['wiresend']) ]
+    sendtimes = [ xd['usersend'] for ts,xd in xlist ]
     senddiffs = [ sendtimes[i] - sendtimes[i-1] for i in range(1,len(sendtimes)) ]
     print("Lost: {}".format(len(lost)))
     printstats('rtt', rtt)
@@ -41,7 +51,15 @@ def main():
 
     for key in meta['monitors'].keys():
         if key.startswith('rtt'):
-            analyze(key, meta['monitors'][key])
+            analyze_rtt(key, meta['monitors'][key])
+    if 'cpu' in meta['monitors']:
+        analyze_cpu(meta['monitors']['cpu'])
+    if 'mem' in meta['monitors']:
+        analyze_mem(meta['monitors']['mem'])
+    if 'netstat' in meta['monitors']:
+        analyze_netcounters(meta['monitors']['netstat'])
+    if 'io' in meta['monitors']:
+        analyze_io(meta['monitors']['io'])
 
 if __name__ == '__main__':
     main()

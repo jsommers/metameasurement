@@ -266,7 +266,7 @@ class RTTProbeSource(DataSource):
         p = pcapffi.PcapLiveDevice.create(ifname)
         p.snaplen = 128
         p.set_promiscuous(True)
-        p.set_timeout(100)
+        p.set_timeout(10)
 
         # choose the "best" timestamp available:
         # highest number up to 3 (don't use unsynced adapter stamps)
@@ -364,32 +364,37 @@ class RTTProbeSource(DataSource):
                         # our intended dest
                         if pkt[IPv4].src != self._dest:
                             continue
-                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,pkt[IPv4].ttl,direction))
+                    hops = self._infer_hops(pkt[IPv4].ttl)
+                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,hops,direction))
                     return
                 elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
                     p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
-                    origttl = self._infer_orig_ttl(pkt[IPv4].ttl)
+                    hops = self._infer_hops(pkt[IPv4].ttl)
                     if p.has_header(self._probehelper.klass):
                         # ttl stuffed into ipid of previously sent 
                         # pkt is unreliable
                         seq, ident = self._probehelper.decode_carcass(p)
                         if ident == self._pktident and p[IPv4].dst == self._dest:
-                            self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Incoming))
+                            self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,hops,ProbeDirection.Incoming))
 
             # identify our outgoing TCP or UDP probe packet.  ICMP is caught
             # in prevous elif
             elif pkt.has_header(self._probehelper.klass): 
                 seq,ident = self._probehelper.decode_carcass(pkt)
-                origttl = pkt[IPv4].ttl
+                hops = self._infer_hops(pkt[IPv4].ttl)
                 if ident == self._pktident:
-                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,origttl,ProbeDirection.Outgoing))
+                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,hops,ProbeDirection.Outgoing))
 
     @staticmethod
-    def _infer_orig_ttl(recvttl):
+    def _infer_hops(recvttl):
         if recvttl > 128:
             return 255-recvttl+1
+        elif recvttl == 128:
+            return 0
         elif recvttl > 64:
             return 128-recvttl+1
+        elif recvttl == 64: 
+            return 0
         elif recvttl > 32:
             return 64-recvttl+1
         return 32-recvttl+1
@@ -467,17 +472,17 @@ class RTTProbeSource(DataSource):
             self._probeseq = 1
 
     async def _ping_collector(self, fut):
-        def store_result(seq, origttl, usersend, wiresend, wirerecv, ipsrc=None):
+        def store_result(seq, hops, usersend, wiresend, wirerecv, ipsrc=None):
             wirertt = wirerecv - wiresend
-            result = {'rtt':wirertt, 'recv':wirerecv, 
+            result = {'rtt':wirertt, 'wirerecv':wirerecv, 
                       'wiresend':wiresend, 'usersend':usersend,
-                      'origttl':origttl, 'seq':seq }
+                      'hops':hops, 'seq':seq }
             if ipsrc is not None:
-                result['ipsrc'] = ipsrc
+                result['ipsrc'] = str(ipsrc)
             if self._probetype == 'ping':
                 self._results.add_result(result)
             else:
-                self._results[origttl].add_result(result)
+                self._results[hops].add_result(result)
 
         seqhash = self._seqhash
         outgoing = self._seqhash[ProbeDirection.Outgoing]
@@ -485,32 +490,32 @@ class RTTProbeSource(DataSource):
 
         while not self._done:
             try:
-                ts,seq,src,origttl,direction = await self._probe_queue.get()
+                ts,seq,src,hops,direction = await self._probe_queue.get()
             except asyncio.CancelledError:
                 break
 
-            self._log.debug("Got seq {} from {} ottl {} direction {} at {}".format(
-                seq, src, origttl, direction.name, ts))
+            self._log.debug("Got seq {} from {} hops {} direction {} at {}".format(
+                seq, src, hops, direction.name, ts))
             if direction == ProbeDirection.Incoming:
                 self._num_probes_recv += 1
 
-            key = (seq,origttl)
+            key = (seq,hops)
             if self._probetype == 'ping':
                 key = seq
             xhash = seqhash[direction]
             xhash[key] = ts
 
             if key in outgoing and key in incoming:
-                store_result(seq, origttl, self._usersend.pop(key),
+                store_result(seq, hops, self._usersend.pop(key),
                     outgoing.pop(key), incoming.pop(key), src)
 
         for key in sorted(self._usersend.keys()):
             if isinstance(key, tuple):
-                xseq, origttl = key
+                xseq, hops = key
             else:
                 xseq = key
-                origttl = 0
-            store_result(xseq, origttl, self._usersend[key],
+                hops = 0
+            store_result(xseq, hops, self._usersend[key],
                               outgoing.get(key, float('inf')), 
                               incoming.get(key, float('inf')))
 
