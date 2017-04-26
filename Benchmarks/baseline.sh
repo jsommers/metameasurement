@@ -1,7 +1,7 @@
 #!/bin/bash -x
 
 INTF=eth0
-DEST=10.0.1.1
+DEST=10.42.42.3
 DURATION=3600
 CPUAFF="-C0"
 
