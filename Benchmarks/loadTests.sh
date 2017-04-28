@@ -12,7 +12,7 @@ SCTARGET="198.41.0.4"
 SLEEP="30"
 LOADNAME="load3"
 MONITOR=`hostname`
-NCPU=`cat /proc/cpuinfo | grep processor | wc -l`
+NCPU=`cat /proc/cpuinfo | grep '^processor' | wc -l`
 CPUPIN=$(($NCPU-1))
 
 METAARGS="-Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=${INTF}:type=hoplimited:maxttl=3:dest=${HLTARGET} -Mrtt:interface=${INTF}:type=ping:dest=${SCTARGET}"
