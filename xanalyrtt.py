@@ -18,6 +18,9 @@ def analyze_rtt(key, xdict):
         if rttkey.startswith('ttl') or rttkey == 'ping':
             gatherandprint(rttkey, xdict[rttkey])
 
+def analyze_io(xli):
+    pass
+
 def analyze_cpu(xli):
     pass
 
