@@ -13,8 +13,8 @@ for MON in cpu mem io netstat cpu:interval=5 rtt:interface=${INTF}:type=ping:des
     OUTNAME=baseline_${DURATION}_${MONNAME}
     echo ${OUTNAME}
     date
-    # python3 metameasurement.py $CPUAFF -M${MON} -c "sleep $DURATION" -F ${OUTNAME} -l
-    #sleep ${SLEEP}
+    python3 metameasurement.py $CPUAFF -M${MON} -c "sleep $DURATION" -F ${OUTNAME} -l
+    sleep ${SLEEP}
 done
 
 OUTNAME=baseline_${DURATION}_allping
