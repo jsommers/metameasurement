@@ -7,7 +7,7 @@ import functools
 import os
 from enum import IntEnum
 
-from psutil import net_if_stats
+from psutil import net_if_stats, pid_exists
 
 from monitor_base import DataSource, SystemObserver, ResultsContainer, \
     _gamma_observer, ConfigurationError
@@ -106,15 +106,16 @@ class ICMPProbeHelper(ProbeHelper):
         return seq, ident
 
     @staticmethod
-    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, ident, dport=44444):
+    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, dport=44444):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
-        p += ICMP(icmptype=ICMPType.EchoRequest, identifier=ident)
+        p += ICMP(icmptype=ICMPType.EchoRequest)
         return p
 
     @staticmethod
-    def fill_in(p, ethdst, ttl, seq):
+    def fill_in(p, ethdst, ttl, ident, seq):
         ProbeHelper.fill_in(p, ethdst, ttl)
         p[ICMP].icmpdata.sequence = seq
+        p[ICMP].icmpdata.identifier = ident
 
 
 class TCPProbeHelper(ProbeHelper):
@@ -143,15 +144,16 @@ class TCPProbeHelper(ProbeHelper):
         return seq, ident
 
     @staticmethod
-    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, ident, dport=DESTPORT):
+    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, dport=DESTPORT):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
-        p += TCP(src=ident, dst=dport, window=228)
+        p += TCP(dst=dport, window=228)
         p[TCP].SYN = 1
         return p
 
     @staticmethod
-    def fill_in(p, ethdst, ttl, seq):
+    def fill_in(p, ethdst, ttl, ident, seq):
         ProbeHelper.fill_in(p, ethdst, ttl)
+        p[TCP].src = ident
         p[TCP].seq = seq
 
 
@@ -180,14 +182,15 @@ class UDPProbeHelper(ProbeHelper):
         return seq, ident
 
     @staticmethod
-    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, ident, dport=DESTPORT):
+    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, dport=DESTPORT):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
-        p += UDP(src=ident, dst=dport)
+        p += UDP(dst=dport)
         return p
 
     @staticmethod
-    def fill_in(p, ethdst, ttl, seq):
+    def fill_in(p, ethdst, ttl, ident, seq):
         ProbeHelper.fill_in(p, ethdst, ttl)
+        P[UDP].src = ident
         p[IPv4].ipid = seq
 
 
@@ -198,11 +201,73 @@ _protomap = {
 }
 
 
+class ProbeContainer(object):
+    '''
+    Containers for (1) indication of when a probe was sent from user space
+    (2) when probe is seen on pcapdevice (wiresend), and (3) when
+    probe response is seen.
+
+    A reference to the "final" results container is referenced here so that
+    as probes come in results can be updated.  NB: the mapping between a
+    probe container and results object is 1-1.
+
+    A separate container object is created for each probe ident (i.e., each
+    separate hop being probed either with ping-style probes or with 
+    hop-limited probes).
+    '''
+    def __init__(self, outttl, results_bucket):
+        self._results = results_bucket
+        self._usersend = {}
+        self._wiresend = {}
+        self._wirerecv = {}
+        self._outttl = outttl
+
+    def put_user_send(self, seq, timestamp):
+        self._usersend[seq] = timestamp
+
+    def put_wire_send(self, seq, timestamp):
+        self._wiresend[seq] = timestamp
+
+    def put_wire_recv(self, seq, wirerecvts, recvttl, ipsrc=None):
+        if seq in self._wiresend:
+            wiresendts = self._wiresend.pop(seq)
+            usersendts = self._usersend.pop(seq)
+            self._store_result(seq, recvttl, usersendts, wiresendts, wirerecvts, ipsrc)
+        else:
+            self._wirerecv[seq] = (wirerecvts, recvttl, ipsrc)
+
+    def flush(self):
+        xinf = float('inf')
+        for seq,usersendts in self._usersend.items():
+            wiresend = self._wiresend.pop(seq, xinf)
+            wirerecv,recvttl,ipsrc = self._wirerecv.pop(seq, (xinf,0,''))
+            self._store_result(seq, recvttl, usersendts, wiresend, wirerecv, ipsrc)
+
+    def _store_result(self, seq, recvttl, usersend, wiresend, wirerecv, ipsrc=None):
+        wirertt = wirerecv - wiresend
+        result = {'rtt':wirertt, 'wirerecv':wirerecv, 
+            'wiresend':wiresend, 'usersend':usersend,
+            'recvttl':recvttl, 'seq':seq }
+        if ipsrc is not None:
+            result['ipsrc'] = str(ipsrc)
+        self._results.add_result(result)
+
+    @property
+    def results(self):
+        return self._results
+
+    @property
+    def outgoing_ttl(self):
+        return self._outttl
+
+
 class RTTProbeSource(DataSource):
     '''
     Monitor RTTs to some number of hops using ICMP echo requests with low
     TTLs.  Uses Switchyard libraries to handle packet construction/emission/reception.
     '''
+    _IDENTS = set()
+
     def __init__(self, interface, probetype, proto, maxttl, allhops, dest):
         DataSource.__init__(self)
         self._interface = interface
@@ -210,17 +275,15 @@ class RTTProbeSource(DataSource):
         self._probetype = probetype
         self._probehelper = _protomap[proto]
 
+        num_idents_needed = 1
         if self._probetype == 'ping':
             self._maxttl = 64
             self._probe_all_hops = False
-            self._results = ResultsContainer()
         elif self._probetype == 'hoplimited':
             self._maxttl = maxttl  # only meaningful for hop-limited probes
             self._probe_all_hops = allhops # only meaningful for hop-limited probes
-            self._results = {}
-            for i in range(1, maxttl+1):
-                # separate results container for each orig ttl
-                self._results[i] = ResultsContainer() 
+            if allhops:
+                num_idents_needed = maxttl
 
         self._dest = IPv4Address(dest)
         self._nexthopip = self._lookup_nexthop() 
@@ -239,19 +302,27 @@ class RTTProbeSource(DataSource):
             self._sendsock = None
         self._log = logging.getLogger('mm')
 
-        self._pktident = os.getpid()% 65536
-
-        self._usersend = {}
-        self._seqhash = {
-            ProbeDirection.Incoming: {},
-            ProbeDirection.Outgoing: {},
-        }
+        self._pktident = {}
+        self._probecontainers = {}
+        idstart = os.getpid() % 65536
+        xttl = self._maxttl
+        while num_idents_needed > 0:
+            if not pid_exists(idstart) and idstart not in RTTProbeSource._IDENTS:
+                self._pktident[idstart] = xttl
+                self._probecontainers[idstart] = ProbeContainer(xttl, ResultsContainer())
+                RTTProbeSource._IDENTS.add(idstart)
+                num_idents_needed -= 1
+                xttl -= 1
+            idstart -= 1
+            if idstart == 0:
+                idstart = 65535
+        self._ttltoident = { v:k for k,v in self._pktident.items() }
 
         ifinfo = self._ifinfo[self._interface]
 
         self._pkttemplate = self._probehelper.make_packet_template(ifinfo.ethsrc, 
             ifinfo.ipsrc.ip, self._dest, self._probehelper.proto, 
-            self._maxttl, self._pktident, dport=DESTPORT)
+            self._maxttl, dport=DESTPORT)
 
         self._setup_port(interface, self._probehelper.pcapfilter)
 
@@ -281,24 +352,22 @@ class RTTProbeSource(DataSource):
                 self._log.warn("Couldn't set timestamp type to the advertised value {}".format(stval.name))
 
         try:
-            p.tstamp_precision = pcapffi.PcapTstampPrecision.Nano
-            self._log.info("Using nanosecond timestamp precision.")
-        except:
+            p.tstamp_precision = pcapffi.PcapTstampPrecision.Micro
             self._log.info("Using microsecond timestamp precision.")
+        except:
+            pass
 
-        if sys.platform == 'linux':
-            # api call doesn't exist everywhere; just ignore if we can't do it
-            try:
-                p.set_immediate_mode(True)
-            except:
-                pass
+        # api call doesn't exist everywhere; just ignore if we can't do it
+        try:
+            p.set_immediate_mode(True)
+        except:
+            pass
 
         w = p.activate()
         if w != 0:
             wval = pcapffi.PcapWarning(w)
             self._log.warn("Warning on activation: {}".format(wval.name))
 
-        p.blocking = False
         p.set_direction(pcapffi.PcapDirection.InOut)
         p.set_filter(filterstr)
 
@@ -335,69 +404,100 @@ class RTTProbeSource(DataSource):
     def __call__(self):
         asyncio.ensure_future(self._emitprobe(self._dest))            
 
-    def _packet_arrival_callback(self):
-        # while loop is here to handle limitations on some platforms
-        # with using select/poll with bpf
-        while True:
-            p = self._pcap.recv_packet_or_none()
-            if p is None:
+    def _packet_arrival(self, p):
+        name = self._pcap.name
+        pkt = decode_packet(self._pcap.dlt, p.raw)
+        ts = p.timestamp
+        ptup = (name,ts,pkt)
+
+        if pkt.has_header(Arp) and pkt[Arp].operation == ArpOperation.Reply: 
+            a = pkt[Arp]
+            self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
+            return
+
+        elif pkt.has_header(ICMP):
+            if (pkt[ICMP].icmptype in \
+                    (ICMPType.EchoReply,ICMPType.EchoRequest) and \
+                    pkt[ICMP].icmpdata.identifier in self._pktident):
+                seq = pkt[ICMP].icmpdata.sequence
+                ident = pkt[ICMP].icmpdata.identifier
+                direction = ProbeDirection.Outgoing 
+                if pkt[ICMP].icmptype == ICMPType.EchoReply:
+                    direction = ProbeDirection.Incoming
+                    # ignore Echo Reply if src addr doesn't match 
+                    # our intended dest
+                    if pkt[IPv4].src != self._dest:
+                        return
+
+                received_ttl = pkt[IPv4].ttl
+                self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,direction))
                 return
+            elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
+                p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
+                if p.has_header(self._probehelper.klass):
+                    seq, ident = self._probehelper.decode_carcass(p)
+                    if ident in self._pktident and p[IPv4].dst == self._dest:
+                        received_ttl = pkt[IPv4].ttl
+                        self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,ProbeDirection.Incoming))
 
-            name = self._pcap.name
-            pkt = decode_packet(self._pcap.dlt, p.raw)
-            ts = p.timestamp
-            ptup = (name,ts,pkt)
+        # identify our outgoing TCP or UDP probe packet.  ICMP is caught
+        # in prevous elif
+        elif pkt.has_header(self._probehelper.klass): 
+            seq,ident = self._probehelper.decode_carcass(pkt)
+            received_ttl = pkt[IPv4].ttl
+            if ident in self._pktident:
+                self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,ProbeDirection.Outgoing))
 
-            if pkt.has_header(Arp) and pkt[Arp].operation == ArpOperation.Reply: 
-                a = pkt[Arp]
-                self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
-                continue
-            elif pkt.has_header(ICMP):
-                if (pkt[ICMP].icmptype in \
-                        (ICMPType.EchoReply,ICMPType.EchoRequest) and \
-                        pkt[ICMP].icmpdata.identifier == self._pktident):
-                    seq = pkt[ICMP].icmpdata.sequence
-                    direction = ProbeDirection.Outgoing 
-                    if pkt[ICMP].icmptype == ICMPType.EchoReply:
-                        direction = ProbeDirection.Incoming
-                        # ignore Echo Reply if src addr doesn't match 
-                        # our intended dest
-                        if pkt[IPv4].src != self._dest:
-                            continue
-                    hops = self._infer_hops(pkt[IPv4].ttl)
-                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,hops,direction))
-                    return
-                elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
-                    p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
-                    hops = self._infer_hops(pkt[IPv4].ttl)
-                    if p.has_header(self._probehelper.klass):
-                        # ttl stuffed into ipid of previously sent 
-                        # pkt is unreliable
-                        seq, ident = self._probehelper.decode_carcass(p)
-                        if ident == self._pktident and p[IPv4].dst == self._dest:
-                            self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,hops,ProbeDirection.Incoming))
+    def _packet_arrival_callback(self):
+        self._pcap.dispatch(self._packet_arrival, -1)
 
-            # identify our outgoing TCP or UDP probe packet.  ICMP is caught
-            # in prevous elif
-            elif pkt.has_header(self._probehelper.klass): 
-                seq,ident = self._probehelper.decode_carcass(pkt)
-                hops = self._infer_hops(pkt[IPv4].ttl)
-                if ident == self._pktident:
-                    self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,hops,ProbeDirection.Outgoing))
+        # # while loop is here to handle limitations on some platforms
+        # # with using select/poll with bpf
+        # while True:
+        #     p = self._pcap.recv_packet_or_none()
+        #     if p is None:
+        #         return
 
-    @staticmethod
-    def _infer_hops(recvttl):
-        if recvttl > 128:
-            return 255-recvttl+1
-        elif recvttl == 128:
-            return 0
-        elif recvttl > 64:
-            return 128-recvttl+1
-        elif recvttl == 64: 
-            return 0
-        elif recvttl > 32:
-            return 64-recvttl+1
-        return 32-recvttl+1
+        #     name = self._pcap.name
+        #     pkt = decode_packet(self._pcap.dlt, p.raw)
+        #     ts = p.timestamp
+        #     ptup = (name,ts,pkt)
+
+        #     if pkt.has_header(Arp) and pkt[Arp].operation == ArpOperation.Reply: 
+        #         a = pkt[Arp]
+        #         self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
+        #         continue
+        #     elif pkt.has_header(ICMP):
+        #         if (pkt[ICMP].icmptype in \
+        #                 (ICMPType.EchoReply,ICMPType.EchoRequest) and \
+        #                 pkt[ICMP].icmpdata.identifier in self._pktident):
+        #             seq = pkt[ICMP].icmpdata.sequence
+        #             ident = pkt[ICMP].icmpdata.identifier
+        #             direction = ProbeDirection.Outgoing 
+        #             if pkt[ICMP].icmptype == ICMPType.EchoReply:
+        #                 direction = ProbeDirection.Incoming
+        #                 # ignore Echo Reply if src addr doesn't match 
+        #                 # our intended dest
+        #                 if pkt[IPv4].src != self._dest:
+        #                     continue
+        #             received_ttl = pkt[IPv4].ttl
+        #             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,direction))
+        #             return
+        #         elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
+        #             p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
+        #             if p.has_header(self._probehelper.klass):
+        #                 seq, ident = self._probehelper.decode_carcass(p)
+        #                 if ident in self._pktident and p[IPv4].dst == self._dest:
+        #                     received_ttl = pkt[IPv4].ttl
+        #                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,ProbeDirection.Incoming))
+
+        #     # identify our outgoing TCP or UDP probe packet.  ICMP is caught
+        #     # in prevous elif
+        #     elif pkt.has_header(self._probehelper.klass): 
+        #         seq,ident = self._probehelper.decode_carcass(pkt)
+        #         received_ttl = pkt[IPv4].ttl
+        #         if ident in self._pktident:
+        #             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,ProbeDirection.Outgoing))
 
     def _send_packet(self, intf, pkt):
         self._log.debug("Sending on {}: {}".format(intf, pkt))
@@ -456,68 +556,35 @@ class RTTProbeSource(DataSource):
             end_ttl = 0
 
         for ttl in range(start_ttl, end_ttl, -1):
-            self._probehelper.fill_in(self._pkttemplate, ethdst, ttl, seq)
+            ident = self._ttltoident[ttl]
+            self._probehelper.fill_in(self._pkttemplate, ethdst, ttl, ident, seq)
             self._send_packet(self._interface, self._pkttemplate)
             self._num_probes_sent += 1
-            key = (seq,ttl)
-            if self._probetype == 'ping':
-                key = seq
-            self._usersend[key] = time() 
-            # FIXME if (seq,ttl) in self._usersend, then we've wrapped around
-            # w/o any pcaprecv or pcapsend: purge from each of these and put
-            # in metadata
+            self._probecontainers[ident].put_user_send(seq, time())
 
         self._probeseq += 1
         if self._probeseq == self._probewrap:
             self._probeseq = 1
 
     async def _ping_collector(self, fut):
-        def store_result(seq, hops, usersend, wiresend, wirerecv, ipsrc=None):
-            wirertt = wirerecv - wiresend
-            result = {'rtt':wirertt, 'wirerecv':wirerecv, 
-                      'wiresend':wiresend, 'usersend':usersend,
-                      'hops':hops, 'seq':seq }
-            if ipsrc is not None:
-                result['ipsrc'] = str(ipsrc)
-            if self._probetype == 'ping':
-                self._results.add_result(result)
-            else:
-                self._results[hops].add_result(result)
-
-        seqhash = self._seqhash
-        outgoing = self._seqhash[ProbeDirection.Outgoing]
-        incoming = self._seqhash[ProbeDirection.Incoming]
-
         while not self._done:
             try:
-                ts,seq,src,hops,direction = await self._probe_queue.get()
+                ts,seq,src,ident,recv_ttl,direction = await self._probe_queue.get()
             except asyncio.CancelledError:
                 break
 
-            self._log.debug("Got seq {} from {} hops {} direction {} at {}".format(
-                seq, src, hops, direction.name, ts))
+            self._log.debug("Got {} seq {} ident {} from {} recvttl {} at {}".format(
+                direction.name, seq, ident, src, recv_ttl, ts))
             if direction == ProbeDirection.Incoming:
+                # incoming probe response from remote system
                 self._num_probes_recv += 1
-
-            key = (seq,hops)
-            if self._probetype == 'ping':
-                key = seq
-            xhash = seqhash[direction]
-            xhash[key] = ts
-
-            if key in outgoing and key in incoming:
-                store_result(seq, hops, self._usersend.pop(key),
-                    outgoing.pop(key), incoming.pop(key), src)
-
-        for key in sorted(self._usersend.keys()):
-            if isinstance(key, tuple):
-                xseq, hops = key
+                self._probecontainers[ident].put_wire_recv(seq, ts, recv_ttl, src)
             else:
-                xseq = key
-                hops = 0
-            store_result(xseq, hops, self._usersend[key],
-                              outgoing.get(key, float('inf')), 
-                              incoming.get(key, float('inf')))
+                # outgoing probe (we saw our own packet emit)
+                self._probecontainers[ident].put_wire_send(seq, ts)
+
+        for container in self._probecontainers.values():
+            container.flush()
 
         fut.set_result(self._num_probes_sent)
 
@@ -549,11 +616,13 @@ class RTTProbeSource(DataSource):
             dconfig['maxttl'] = self._maxttl
             dconfig['probe_all_hops'] = self._probe_all_hops
         xmeta['probe_config'] = dconfig
+
         if self._probetype == 'ping':
-            xmeta['ping'] = self._results.all()
+            container = list(self._probecontainers.values())[0]
+            xmeta['ping'] = container.results.all()
         else:
-            for i in range(1, self._maxttl+1):
-                xmeta['ttl_{}'.format(i)] = self._results[i].all()
+            for container in self._probecontainers.values():
+                xmeta['ttl_{}'.format(container.outgoing_ttl)] = container.results.all()
         return xmeta
 
     def show_status(self):
