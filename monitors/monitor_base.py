@@ -144,6 +144,7 @@ class SystemObserver(object):
         self._done = False
         assert(callable(intervalfn))
         self._intervalfn = intervalfn
+        self._log = logging.getLogger('mm')
 
     async def __call__(self):
         evl = asyncio.get_event_loop()
@@ -163,14 +164,15 @@ class SystemObserver(object):
                 asyncio.Task.current_task().cancelled():
                 break
 
-            sleeptime = max(0, self._intervalfn() - compensate)
             before = evl.time()
+            sleeptime = self._intervalfn()
             try:
                 await asyncio.sleep(sleeptime)
             except asyncio.CancelledError:
                 break
             actualsleep = evl.time() - before 
-            compensate = max(actualsleep - sleeptime, 0)
+            if actualsleep > sleeptime*1.5:
+                self._log.warn("Monitor {} slept too long (wanted {:.3f} but got {:.3f}".format(repr(self._source), sleeptime, actualsleep))
 
     def stop(self):
         self._done = True

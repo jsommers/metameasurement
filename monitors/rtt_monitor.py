@@ -451,54 +451,6 @@ class RTTProbeSource(DataSource):
     def _packet_arrival_callback(self):
         self._pcap.dispatch(self._packet_arrival, -1)
 
-        # # while loop is here to handle limitations on some platforms
-        # # with using select/poll with bpf
-        # while True:
-        #     p = self._pcap.recv_packet_or_none()
-        #     if p is None:
-        #         return
-
-        #     name = self._pcap.name
-        #     pkt = decode_packet(self._pcap.dlt, p.raw)
-        #     ts = p.timestamp
-        #     ptup = (name,ts,pkt)
-
-        #     if pkt.has_header(Arp) and pkt[Arp].operation == ArpOperation.Reply: 
-        #         a = pkt[Arp]
-        #         self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
-        #         continue
-        #     elif pkt.has_header(ICMP):
-        #         if (pkt[ICMP].icmptype in \
-        #                 (ICMPType.EchoReply,ICMPType.EchoRequest) and \
-        #                 pkt[ICMP].icmpdata.identifier in self._pktident):
-        #             seq = pkt[ICMP].icmpdata.sequence
-        #             ident = pkt[ICMP].icmpdata.identifier
-        #             direction = ProbeDirection.Outgoing 
-        #             if pkt[ICMP].icmptype == ICMPType.EchoReply:
-        #                 direction = ProbeDirection.Incoming
-        #                 # ignore Echo Reply if src addr doesn't match 
-        #                 # our intended dest
-        #                 if pkt[IPv4].src != self._dest:
-        #                     continue
-        #             received_ttl = pkt[IPv4].ttl
-        #             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,direction))
-        #             return
-        #         elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
-        #             p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
-        #             if p.has_header(self._probehelper.klass):
-        #                 seq, ident = self._probehelper.decode_carcass(p)
-        #                 if ident in self._pktident and p[IPv4].dst == self._dest:
-        #                     received_ttl = pkt[IPv4].ttl
-        #                     self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,ProbeDirection.Incoming))
-
-        #     # identify our outgoing TCP or UDP probe packet.  ICMP is caught
-        #     # in prevous elif
-        #     elif pkt.has_header(self._probehelper.klass): 
-        #         seq,ident = self._probehelper.decode_carcass(pkt)
-        #         received_ttl = pkt[IPv4].ttl
-        #         if ident in self._pktident:
-        #             self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,ProbeDirection.Outgoing))
-
     def _send_packet(self, intf, pkt):
         self._log.debug("Sending on {}: {}".format(intf, pkt))
         if sys.platform == 'linux':

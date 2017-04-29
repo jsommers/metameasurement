@@ -77,6 +77,7 @@ class MetadataOrchestrator(object):
         self._metadict['version'] = VERSION
         self._metadict['os'] = proc.stdout
         self._metadict['command'] = commandline
+        self._metadict['someta_commandline'] = ' '.join(sys.argv)
         try:
             self._metadict['commandoutput'] = self._toolfut.result()
             self._log.info("Command output: {}".format(self._toolfut.result()))
