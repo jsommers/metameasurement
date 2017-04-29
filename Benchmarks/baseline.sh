@@ -32,13 +32,13 @@ sleep ${SLEEP}
 OUTNAME=baseline_${DURATION}_allhoplimited
 echo ${OUTNAME}
 date
-python3 metameasurement.py $CPUAFF -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=ping:dest=$DEST -c "sleep $DURATION" -F ${OUTNAME} -l
+python3 metameasurement.py $CPUAFF -Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=$INTF:type=hoplimited:dest=8.8.8.8:maxttl=1 -c "sleep $DURATION" -F ${OUTNAME} -l
 sleep ${SLEEP}
 
 OUTNAME=baseline_${DURATION}_allhoplimited_interval5
 echo ${OUTNAME}
 date
-python3 metameasurement.py $CPUAFF -Mcpu:interval=5 -Mmem:interval=5 -Mio:interval=5 -Mnetstat:interval=5 -Mrtt:interface=$INTF:type=ping:dest=$DEST:rate=0.2 -c "sleep $DURATION" -F ${OUTNAME} -l
+python3 metameasurement.py $CPUAFF -Mcpu:interval=5 -Mmem:interval=5 -Mio:interval=5 -Mnetstat:interval=5 -Mrtt:interface=$INTF:type=hoplimited:maxttl=1:dest=8.8.8.8:rate=0.2 -c "sleep $DURATION" -F ${OUTNAME} -l
 sleep ${SLEEP}
 
 echo "done"
