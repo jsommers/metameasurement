@@ -172,7 +172,7 @@ class SystemObserver(object):
                 break
             actualsleep = evl.time() - before 
             if actualsleep > sleeptime*1.5:
-                self._log.warn("Monitor {} slept too long (wanted {:.3f} but got {:.3f}".format(repr(self._source), sleeptime, actualsleep))
+                self._log.warn("Monitor {} slept too long (wanted {:.3f} but got {:.3f}".format(self._source.__class__.__name__, sleeptime, actualsleep))
 
     def stop(self):
         self._done = True
