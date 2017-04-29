@@ -9,7 +9,7 @@ xname='ping'
 
 if sys.platform == 'linux':
     cmdprefix = ""
-    dest="10.43.43.3"
+    dest="10.42.42.3"
     interface="eth0"
     cpu = max(os.sched_getaffinity(os.getpid()))
     cpupin = "-C{}".format(cpu)
