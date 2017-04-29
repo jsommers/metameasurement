@@ -19,10 +19,8 @@ else: # freebsd
     dest="10.13.13.1"
     interface="bce1"
 
-for rate in range(1,501,4):
-    cmd = '{}python3 metameasurement.py {}-l -Mcpu -Mrtt:interface={}:
-{}:dest={}:rate={} -F send_{}{} -c "sleep 60"'.format(cmdprefix, cpupin, interface, ptype, dest, ra
-te, xname, rate)
+for rate in range(1,301):
+    cmd = '{}python3 metameasurement.py {} -Mcpu -Mrtt:interface={}:{}:dest={}:rate={} -F send_{}{} -l -c "sleep 60"'.format(cmdprefix, cpupin, interface, ptype, dest, rate, xname, rate)
     print("Running {}".format(rate))
     print(cmd)
     proc = run(cmd, shell=True)
