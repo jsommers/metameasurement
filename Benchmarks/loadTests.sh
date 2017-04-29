@@ -13,7 +13,9 @@ SLEEP="30"
 LOADNAME="load4"
 MONITOR=`hostname`
 NCPU=`cat /proc/cpuinfo | grep '^processor' | wc -l`
-CPUPIN=$(($NCPU-1))
+XCPU=$(($NCPU-1))
+#CPUPIN="-C ${XCPU}"
+CPUPIN=""
 SCPROBES=250
 
 METAARGS="-Mcpu -Mmem -Mio -Mnetstat -Mrtt:interface=${INTF}:type=hoplimited:maxttl=3:dest=${HLTARGET} -Mrtt:interface=${INTF}:type=ping:dest=${SCTARGET}"
@@ -42,7 +44,7 @@ for LTYPE in none cpu mem io net; do
     WARTSOUT=${LOADNAME}_${LTYPE}.warts
     echo "Starting SoMeta"
     date
-    python3 metameasurement.py -C ${CPUPIN} ${METAARGS} -F ${LOADNAME}_${LTYPE} -l -c "scamper -c \"ping -P icmp-echo -c ${SCPROBES} -s 64\" -M ${MONITOR}  -o ${LOADNAME}_${LTYPE}.warts -O warts -i ${SCTARGET}"
+    python3 metameasurement.py ${CPUPIN} ${METAARGS} -F ${LOADNAME}_${LTYPE} -l -c "scamper -c \"ping -P icmp-echo -c ${SCPROBES} -s 64\" -M ${MONITOR}  -o ${LOADNAME}_${LTYPE}.warts -O warts -i ${SCTARGET}"
 
     killall python3
     sleep $SLEEP
