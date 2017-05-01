@@ -19,7 +19,7 @@ def _gather_ts_rtt(rawdlist, xkey):
     rtt = []
     for i in range(len(rawdlist)): 
         ts, xd = rawdlist[i]
-        rval = xd['recv'] - xd['send']
+        rval = xd['rtt']
         if isinf(rval) or rval < 0:
             continue
         tsval.append(ts)
@@ -28,7 +28,7 @@ def _gather_ts_rtt(rawdlist, xkey):
 
 def plotItems(inbase, datamap, keys):
     f, axarr = plt.subplots(figsize=(len(keys)*4,len(keys)*4), nrows=len(keys), ncols=1, sharex=True, squeeze=False)
-    color_cycle = cycler(c=['r', 'g', 'b'])
+    color_cycle = cycler(c=[ 'C{}'.format(i) for i in range(3) ])
     ls_cycle = cycler('ls', ['-.', '--', '-', ':'])
     lw_cycle = cycler('lw', range(1, 4))
     sty_cycle = ls_cycle * (color_cycle + lw_cycle)
@@ -51,6 +51,7 @@ def plotItems(inbase, datamap, keys):
         axarr[idx,0].set_ylabel(dkey)
     axarr[len(keys)-1,0].set_xlabel("Time (s)")
 
+    plt.tight_layout()
     plt.savefig("{}.png".format(inbase))
 
 def plotGroups(inbase, datamap, keyList):
