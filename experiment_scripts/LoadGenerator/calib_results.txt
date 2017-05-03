@@ -1,0 +1,12 @@
+#Starting Calibration:
+#---------------------
+#CPU Calibration
+#---------------
+#Number of loops for 100% CPUness: 506 (-c flag)
+-c 506
+#Randomizing...44739242
+#------------------
+#Memory Calibration
+#------------------
+#Number of loops for 100% Memory-ness: 56 (-m flag)
+-m 56
