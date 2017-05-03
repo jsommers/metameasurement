@@ -108,7 +108,7 @@ Here are some examples::
 License
 -------
 
-Copyright 2017 Joel Sommers.  All rights reserved.
+Copyright 2017  SoMeta authors.  All rights reserved.
 
 The SoMeta software is distributed under terms of the GNU General Public License, version 3.  See below for the standard GNU GPL v3 copying text.
 
