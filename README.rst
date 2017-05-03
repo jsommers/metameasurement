@@ -100,8 +100,8 @@ where ``meta.json`` is a SoMeta metadata file.  The output of ``plotmeta.py`` wi
 
 Here are some examples::
 
-    $ python3 plotmeta.py -i cpu:idle -i io:disk0_write_time meta.json -t ecdf
-    $ python3 plotmeta.py -g cpu meta.json -t timeseries
+    $ python3 plotmeta.py -t ecdf -i cpu:idle -i io:disk0_write_time meta.json
+    $ python3 plotmeta.py -t timeseries -g cpu meta.json
     $ python3 plotmeta.py -a meta.json
 
 
