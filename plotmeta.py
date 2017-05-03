@@ -5,6 +5,7 @@ from statistics import mean, stdev, median
 from math import isinf
 import sys
 import os.path
+import numpy as np
 
 import matplotlib.pyplot as plt
 from cycler import cycler
@@ -26,54 +27,90 @@ def _gather_ts_rtt(rawdlist, xkey):
         rtt.append(rval)
     return tsval, rtt
 
-def plotItems(inbase, datamap, keys):
-    f, axarr = plt.subplots(figsize=(len(keys)*6,len(keys)*4), nrows=len(keys), ncols=1, sharex=True, squeeze=False)
-    # color_cycle = cycler(c=[ 'C{}'.format(i) for i in range(3) ])
-    # ls_cycle = cycler('ls', ['-.', '--', '-', ':'])
-    # lw_cycle = cycler('lw', range(1, 4))
-    # sty_cycle = ls_cycle * (color_cycle + lw_cycle)
-    # styles = []
-    # for i, sty in enumerate(sty_cycle):
-    #     styles.append(sty)
+def eCDF(data):
+    sorted_data = np.sort(np.asarray(data))
+    x1 = []
+    y1 = []
 
-    for idx, key in enumerate(keys):
-        ts = []
-        data = []
-        rawdlist = datamap[key]
-        dkey = key.split(':')[-1]
-        if key.endswith('rtt'):
-            ts, data = _gather_ts_rtt(rawdlist, dkey)
-        elif key.endswith('ipsrc'):
-            continue
-        else:
-            ts, data = _gather_ts(rawdlist, dkey)
+    y = 0
+    for x in sorted_data:
+        x1.extend([x,x])
+        y1.append(y)
+        y += 1.0 / len(data)
+        y1.append(y)
+    return x1, y1
 
-        # axarr[idx,0].plot(ts, data, label=dkey, **styles[idx], marker='o')
-        # axarr[idx,0].plot(ts, data, label=dkey, color='C{}'.format(idx))
+def plotItems(inbase, datamap, keys, pType):
+    f = None
+    axarr = None
 
-        maxD = max(data)
-        minD = min(data)
-        axarr[idx,0].scatter(ts, data, label=dkey, color='C{}'.format(idx), marker='o')
-        axarr[idx,0].set_ylim([minD - 0.1 * minD, maxD + 0.1 * maxD])
-        axarr[idx,0].grid()
-        axarr[idx,0].set_ylabel(dkey)
-    axarr[len(keys)-1,0].set_xlabel("Time (s)")
+    if pType == 'timeseries':
+        f, axarr = plt.subplots(figsize=(len(keys)*6,len(keys)*4), nrows=len(keys), ncols=1, sharex=True, squeeze=False)
 
-    plt.tight_layout()
-    plt.savefig("{}.png".format(inbase))
+        for idx, key in enumerate(keys):
+            ts = []
+            data = []
+            rawdlist = datamap[key]
+            dkey = key.split(':')[-1]
+            if key.endswith('rtt'):
+                ts, data = _gather_ts_rtt(rawdlist, dkey)
+            elif key.endswith('ipsrc'):
+                continue
+            else:
+                ts, data = _gather_ts(rawdlist, dkey)
 
-def plotGroups(inbase, datamap, keyList):
+            maxD = max(data)
+            minD = min(data)
+            axarr[idx,0].scatter(ts, data, label=dkey, color='C{}'.format(idx), marker='o')
+            axarr[idx,0].set_ylim([minD - 0.1 * minD, maxD + 0.1 * maxD])
+            axarr[idx,0].grid()
+            axarr[idx,0].set_ylabel(dkey)
+        axarr[len(keys)-1,0].set_xlabel("Time (s)")
+
+        plt.tight_layout()
+        plt.savefig("{}.png".format(inbase))
+
+    elif pType == 'ecdf':
+        f, axarr = plt.subplots(figsize=(len(keys)*4,len(keys)*4), nrows=len(keys), ncols=1, sharex=True, squeeze=False)
+
+        for idx, key in enumerate(keys):
+            ts = []
+            data = []
+            rawdlist = datamap[key]
+            dkey = key.split(':')[-1]
+            if key.endswith('rtt'):
+                ts, data = _gather_ts_rtt(rawdlist, dkey)
+            elif key.endswith('ipsrc'):
+                continue
+            else:
+                ts, data = _gather_ts(rawdlist, dkey)
+
+            if data:
+                xVals, yVals = eCDF(data)
+                axarr[idx,0].plot(xVals, yVals, label=dkey, color='C{}'.format(idx), ls='--')
+                axarr[idx,0].grid()
+                axarr[idx,0].set_ylabel('Cumulative fraction')
+                axarr[idx,0].set_xlabel(dkey)
+
+        plt.tight_layout()
+        plt.savefig("{}.png".format(inbase))
+
+    else:
+        print ('Unknown plot type. Supported options: timeseries or ecdf.')
+        sys.exit(-1)
+
+def plotGroups(inbase, datamap, keyList, pType):
     for k in keyList:
         matchitems = []
         matchkey = "{}:".format(k)
         for dkey in datamap.keys():
             if dkey.startswith(matchkey):
                 matchitems.append(dkey)
-        plotItems('_'.join((inbase, k)), datamap, matchitems)
+        plotItems('_'.join((inbase, k)), datamap, matchitems, pType)
 
-def plotAll(inbase, datamap):
+def plotAll(inbase, datamap, pType):
     groups = _dump_keys(datamap)
-    plotGroups(inbase, datamap, groups)
+    plotGroups(inbase, datamap, groups, pType)
 
 def _dump_keys(datamap, dumpfull=False):
     rv = []
@@ -130,6 +167,8 @@ def main():
                         help='Plot all groups in separate subplots.')
     parser.add_argument('-l', '--list', action='store_true',
                         help='List all data keys that can be plotted')
+    parser.add_argument('-t', '--type', dest='plot_type', default='timeseries', \
+                        help='Type of plot. Options: timeseries, ecdf')
     parser.add_argument('jsonmeta', nargs=1)
     args = parser.parse_args()
 
@@ -142,14 +181,14 @@ def main():
     datamap = _make_key_map(meta)
 
     if args.items:
-        print("Plotting items: {0}".format(args.items))
-        plotItems(inbase+"_items", datamap, args.items)
+        print("Plotting items: {0}. Type: {1}.".format(args.items, args.plot_type))
+        plotItems(inbase+"_items", datamap, args.items, args.plot_type)
     elif args.groups:
-        print("Plotting groups: {0}".format(args.groups))
-        plotGroups(inbase, datamap, args.groups)
+        print("Plotting groups: {0}. Type: {1}.".format(args.groups, args.plot_type))
+        plotGroups(inbase, datamap, args.groups, args.plot_type)
     elif args.all:
-        print("Plotting all items in all groups.")
-        plotAll(inbase, datamap)
+        print("Plotting all items in all groups. Type: {0}.".format(args.plot_type))
+        plotAll(inbase, datamap, args.plot_type)
     elif args.list:
         _dump_keys(datamap, dumpfull=True)
     else:
