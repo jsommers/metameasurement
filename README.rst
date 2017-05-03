@@ -1,133 +1,128 @@
+SoMeta
+======
 
-Try it out
-----------
+Automatic collection of network measurement metadata.
 
-Requires Python 3.6.
+Installation
+------------
 
-A basic recipe for running the tool::
+Python 3.6 is required.
+
+Using a Python virtual environment (venv) is strongly suggested::
 
     # Install a python venv and required modules
-    python3 -m venv xenv
-    source xenv/bin/activate
-    pip3 install -r requirements
+    $ python3 -m venv xenv
+    $ source xenv/bin/activate
+    $ pip3 install -r requirements
 
-    # Give a test run (may require running as root)
-    # By default, the tool runs "sleep 5" as the external "measurement" process.
-    # This which will take ~7/8 seconds to finish.
-    python3 metameasurement.py
+At present, there's no standard ``setup.py`` distutils (or similar) script.  But there will be, eventually.
 
-    # Tool has the following options
-    -d, -v, --verbose, --debug
-            Turn on verbose/debug output.
-    -f, --fileprefix
-            Prefix for filename that includes metadata for a given run.
-    -l, --logfile
-            Send log messages to a file (instead of stdout).
-    -c, --command
-            The full command line for running an active measurement tool. 
-            Command should be enclosed within quotes (e.g., "ping -c 1 test.com")
-    -u, --statusinterval
-            Time interval on which to show periodic status while running.
-    -q, --quiet
-            Turn off all info, log and status messages.
-    -M, --monitor
-            Add a metadata monitoring source.
-            Standard available sources include cpu,mem,io,netstat,rtt
-              (see monitors/ directory)
+Running
+-------
 
-            To configure a monitor, parameters may be specified along
-            with each monitor name, each separated by a colon (':').
-            Each parameter may be a single string, or a key=value.
-            The order of parameters doesn't matter.
+To start SoMeta run the ``metameasurement.py`` Python program.  There are several
+possible command-line options.  See ``metameasurement.py -h`` for a list.  Some
+additional detail is below, specifically regarding monitors and options.
 
-            Valid parameters for each standard monitor are:
+The ``-c`` option indicates the "external" measurement tool to start.  By default, 
+SoMeta starts ``sleep 5``, which causes SoMeta simply to collect 5 seconds-worth of
+metadata, given what ever monitors have been configured.  You'll almost certainly
+need to quote the command line for the external tool, and some escaping may be required
+if there are embedded quotes needed for the tool (see the example with scamper, below).
 
-                -M cpu:interval=X  --- set the periodic sampling interval
-                                       (default = 1sec)
-                -M io:interval=X   --- set the periodic sampling interval.
-                -M mem:interval=X  --- set the periodic sampling interval.
-                -M netstat:interval=X  
-                                   --- set the periodic sampling interval.
-                           Additional string arguments to the netstat monitor
-                           can specify interface names to monitor (all
-                           interfaces are included if none are specified).
-                           For example, to monitor en0's netstat counters
-                           every 5 seconds:
-                           -M netstat:interval=5:en0
-                -M rtt:interface=IfaceName:rate=R:dest=D:type=ProbeType:maxttl=MaxTTL:proto=Protocol:allhops
-                           Monitor RTT along a path to destination D 
-                           out of interface IfaceName with probe rate R.
-                           Probe interval is gamma distributed.
-                           Default dest D = 8.8.8.8.
-                           Default rate R = 1/sec.
-                           ProbeType = ping | hoplimited (default=hoplimited)
-                           MaxTTL = maximum ttl (for hop-limited probes)
-                                    default value = 1
-                           Protocol = (icmp | tcp | udp) (for hop-limited probes)
-                                    default = icmp
-                           allhops = probe all hops up to maxttl (for hop-limited probes)
+The ``-M`` option specifies a monitor to start.  Standard available sources include cpu, mem, io, netstat, rtt (see the ``monitors/`` directory).
+
+To configure a monitor, parameters may be specified along with each monitor name, each separated by a colon (':').  Each parameter may be a single string, or a ``key=value`` pair.  The order of parameters doesn't matter.
+
+Valid parameters for each standard monitor are:
+
+   * ``-M cpu:interval=X``: set the periodic sampling interval (default 1 sec)
+   * ``-M io:interval=X``: set the periodic sampling interval (default 1 sec)
+   * ``-M mem:interval=X``: set the periodic sampling interval (default 1 sec)
+   * ``-M netstat:interval=X``: set the periodic sampling interval.
+
+     Additional string arguments to the netstat monitor
+     can specify interface names to monitor (all
+     interfaces are included if none are specified).
+     For example, to monitor en0's netstat counters
+     every 5 seconds:
+     
+     * ``-M netstat:interval=5:en0``
+
+   * ``-M rtt:interface=IfaceName:rate=R:dest=D:type=ProbeType:maxttl=MaxTTL:proto=Protocol:allhops``
+     
+     Monitor RTT along a path to destination ``D`` out of interface ``IfaceName``
+     with probe rate ``R``.  Probe interval is gamma distributed.  The default
+     destination is 8.8.8.8 and default probe rate is 1/sec.
+
+     ``ProbeType`` can either be ``ping`` or ``hoplimited`` (default is hoplimited)
+
+     ``MaxTTL`` is maximum ttl for hop-limited probes (pointless for ping probes).  
+     Default is maxttl = 1.
+
+     ``Protocol`` is (icmp | tcp | udp) (for hop-limited probes).  Default is icmp.
+
+     ``allhops``: probe all hops up to maxttl (for hop-limited probes)
 
 
-    # Examples
-    # Use a different external measurement tool
-    python3 metameasurement.py -Mcpu "ping -c 100 www.google.com" 
-    # Monitor CPU only for traceroute
-    python3 metameasurement.py -Mcpu "traceroute www.google.com" 
-    # Monitor IO and Netstat counters only for ping
-    python3 metameasurement.py -Mio -Mnetstat -c "ping www.google.com" 
+Here are some examples::
 
-    # Output
-    # Running the tool produces a json file with captured metadata.
+    # Monitor only CPU performance while emitting 100 ICMP echo request (ping) probes to
+    # www.google.com.
+    $ python3 metameasurement.py -Mcpu "ping -c 100 www.google.com" 
 
-Plotting tool::
+    # Monitor CPU performance and netstat counters (for all interfaces) for traceroute
+    $ python3 metameasurement.py -Mcpu -Mnetstat "traceroute www.google.com" 
 
-    # Simple tool to plot all the metadata collected.
-    # See what metadata can be plotted without any arguments.
-    python3 plotmeta.py <json file produced by previous step>
+    # Monitor CPU, IO and Netstat counters for ping
+    # Set the metadata output file to start with "ping_google"
+    $ python3 metameasurement.py -Mio -Mnetstat -c "ping www.google.com" -f ping_google
 
-    # Tool has the following options
-    -i, --item
-            Include individual item in the plot, e.g., cpu:idle or cpu:nice
-    -g, --group
-            Include a group of items in the plot, e.g., cpu includes idle, nice, user and system
-    -a, --all
-            Plot all groups in separate subplots.
+    # Monitor everything, including RTT for the first 3 hops of the network path toward
+    # 8.8.8.8.  As the external tool, use scamper to emit ICMP echo requests, dumping
+    # its output to a warts file.
+    $ python3 metameasurement.py -Mcpu -Mmem -Mio -Mnetstat:eth0 -Mrtt:interface=eth0:type=hoplimited:maxttl=3:dest=8.8.8.8 -f ping_metadata -l -c "scamper -c \"ping -P icmp-echo -c 60 -s 64\" -o ping.warts -O warts -i 8.8.8.8"
 
-    # Examples
-    python3 plotmeta.py -i cpu:idle -i io:disk0_write_time <json file produced by previous step>
-    python3 plotmeta.py -g cpu <json file produced by previous step>
-    python3 plotmeta.py -a <json file produced by previous step>
 
-Generating artificial load::
+Analyzing metadata
+------------------
 
-    # loadmeta.py can be used to generate artificial CPU, RAM, disk and network loads
-    # CPU and RAM loads are generated using wileE benchmark
-    # disk load with dd is used
-    # network load is generated using with iPerf (so, the tool assumes that iPerf3 is installed)
-    # loads are called in on and off phases and there is also a wait time
-    # loads are generated during on phases using different distributions (gamma, exponential)
+The ``analyzemeta.py`` script performs some simple analysis on SoMeta metadata, printing results to the console.  
 
-    # Configuration
-    # to configure wileE for the first time, use ./runLoad.sh 1
-    # wilee calibrates the number of loops required to achieve 100% CPU and RAM loads
-    # once the values are found, set them to -c and -m flags
-    # use -s to set duration of on phase
-    # use -e to set duration of off phase
-    # use -w to set wait period before starting the tool
-    # use -C to set the percentage of CPU load needed
-    # use -M to set the percentage of RAM load needed
-    # use -D to start disk load
-    # use -d to set the max count of disks blocks to write
-    # use -N to start network load
-    # use -n to denote max bandwidth allowed
-    # use -i to set iPerf server's address
+Plotting metadata
+-----------------
 
-    # Examples
-    # to run 100% CPU load
-    python3 loadmeta.py -f gamma -s 2 -e 2 -w 5 -c 376 -m 47 -C 1.0 -M 0.0
-    # to run 100% memory load
-    python3 loadmeta.py -f gamma -s 2 -e 2 -w 5 -c 376 -m 47 -C 0.0 -M 1.0
-    # to run disk load
-    python3 loadmeta.py -f gamma -s 2 -e 2 -w 5 -d 1000 -D
-    # to run network load
-    python3 loadmeta.py -f gamma -s 2 -e 2 -w 5 -n 2 -N -i "127.0.0.1"
+The ``plotmeta.py`` tool is designed to help plot various metrics collected through SoMeta *monitors*.  To see what metrics may be plotted, you can run the following::
+
+    $ python3 plotmeta.py -l meta.json
+
+where ``meta.json`` is a SoMeta metadata file.  The output of ``plotmeta.py`` with the ``-l`` option shows various *items* that can be plotted.  Each item is organized into *groups*.  You can either plot any number of individual items (``-i`` option), or plot each metric for an entire group (``-g`` option).  If you want everything, use the ``-a`` option.  See ``plotmeta.py -h`` for all options.
+
+Here are some examples::
+
+    $ python3 plotmeta.py -i cpu:idle -i io:disk0_write_time meta.json
+    $ python3 plotmeta.py -g cpu meta.json
+    $ python3 plotmeta.py -a meta.json
+
+
+License
+-------
+
+Copyright 2017 Joel Sommers.  All rights reserved.
+
+The SoMeta software is distributed under terms of the GNU General Public License, version 3.  See below for the standard GNU GPL v3 copying text.
+
+::
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
