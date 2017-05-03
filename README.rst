@@ -96,12 +96,12 @@ The ``plotmeta.py`` tool is designed to help plot various metrics collected thro
 
     $ python3 plotmeta.py -l meta.json
 
-where ``meta.json`` is a SoMeta metadata file.  The output of ``plotmeta.py`` with the ``-l`` option shows various *items* that can be plotted.  Each item is organized into *groups*.  You can either plot any number of individual items (``-i`` option), or plot each metric for an entire group (``-g`` option).  If you want everything, use the ``-a`` option.  See ``plotmeta.py -h`` for all options.
+where ``meta.json`` is a SoMeta metadata file.  The output of ``plotmeta.py`` with the ``-l`` option shows various *items* that can be plotted.  Each item is organized into *groups*.  You can either plot any number of individual items (``-i`` option), or plot each metric for an entire group (``-g`` option).  If you want everything, use the ``-a`` option.  In addition, ``-t`` option can be used to change the type of output plot. Use *ecdf* for empirical CDF or *timeseries* for simple scatter plot with timeline (which is default output of the plot tool). See ``plotmeta.py -h`` for all options.
 
 Here are some examples::
 
-    $ python3 plotmeta.py -i cpu:idle -i io:disk0_write_time meta.json
-    $ python3 plotmeta.py -g cpu meta.json
+    $ python3 plotmeta.py -i cpu:idle -i io:disk0_write_time meta.json -t ecdf
+    $ python3 plotmeta.py -g cpu meta.json -t timeseries
     $ python3 plotmeta.py -a meta.json
 
 
