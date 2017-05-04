@@ -2,6 +2,7 @@ import json
 import argparse
 from statistics import mean, stdev, median
 from math import isinf
+from collections import defaultdict
 
 def printstats(name, xlist):
     print("{}".format(name))
@@ -17,18 +18,67 @@ def analyze_rtt(key, xdict):
     for rttkey in xdict.keys():
         if rttkey.startswith('ttl') or rttkey == 'ping':
             gatherandprint(rttkey, xdict[rttkey])
+    print("\nlibpcap info: recv: {recv}  pcapdrop: {pcapdrop}  " \
+          "ifdrop: {ifdrop}\n".format(**xdict['libpcap_stats']))
 
 def analyze_io(xli):
-    pass
+    # busy_time?
+    if len(xli) == 0:
+        return
+    xd = xli[0][1]
+    #print(xd.keys())
 
 def analyze_cpu(xli):
-    pass
+    if len(xli) == 0:
+        return
+    keys_of_interest = []
+    data = defaultdict(list)
+    xd = xli[0][1]
+    for key in xd.keys():
+        if 'idle' in key:
+            keys_of_interest.append(key)
+    for ts,xd in xli:
+        for k in keys_of_interest:
+            data[k].append(xd[k])
 
+    print("\nMean/stdev CPU idle:")
+    for k in sorted(keys_of_interest):
+        m = mean(data[k])
+        s = stdev(data[k])
+        print("\t{}: {:.3f} ({:.3f})".format(k, m, s))
+    
 def analyze_mem(xli):
-    pass
+    if len(xli) == 0:
+        return
+    available = [ xd['available'] for _,xd in xli ] 
+    print("\nMemory available (Bytes) mean (stdev): {:.0f} ({:.0f})".format(
+        mean(available), stdev(available)))
 
 def analyze_netcounters(xli):
-    pass
+    if len(xli) == 0:
+        return
+    keys_of_interest = []
+    counters = defaultdict(list)
+
+    xd = xli[0][1]
+    for key in xd.keys():
+        if 'drop' in key:
+            keys_of_interest.append(key)
+        elif 'err' in key:
+            keys_of_interest.append(key)
+    for ts,xd in xli:
+        for k in keys_of_interest:
+            counters[k].append(xd[k])
+
+    print()
+    flag = False
+    for k in sorted(keys_of_interest):
+        s = sum(counters[k])
+        if s > 0:
+            print("{}: count is non-zero ({})".format(k, s))
+            flag = True
+    if not flag:
+        print("No drops or errors in netstat counters")
 
 def gatherandprint(rkey, xlist):
     print("Results for {}".format(rkey))
