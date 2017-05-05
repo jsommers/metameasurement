@@ -46,11 +46,11 @@ def analyze_cpu(xli):
         m = mean(data[k])
         s = stdev(data[k])
         print("\t{}: {:.3f} ({:.3f})".format(k, m, s))
-    
+
 def analyze_mem(xli):
     if len(xli) == 0:
         return
-    available = [ xd['available'] for _,xd in xli ] 
+    available = [ xd['available'] for _,xd in xli ]
     print("\nMemory available (Bytes) mean (stdev): {:.0f} ({:.0f})".format(
         mean(available), stdev(available)))
 
