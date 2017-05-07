@@ -52,11 +52,18 @@
                         </div>
                     </div>
 
-                    <h3 class="cover-heading">CPU performance overhead results.</h3><br/><br/>
+                    <h3 class="cover-heading">CPU performance overhead results.</h3><br/>
 
                     <div class="pre-scrollable">
+                            <div class="col-md-6">
+                                <img src="2/pib_base_cpu.png" alt="inn_logo" style="height:280px;width:320px" title="Pi1 CPU overhead"/>
+                            </div>
+                            <div class="col-md-6">
+                                <img src="2/pi3_base_cpu.png" alt="ccs_logo" style="height:280px;width:320px" title="Pi3 CPU overhead"/>
+                            </div>
+                            <p align="center">CPU performance overhead results (Left: Raspberry Pi Model 1 B; Right: Raspberry Pi Model 3 B)</p>
+                            <p align="justify">To run the experiments and create the data, <a href="https://github.com/jsommers/metameasurement/blob/master/experiment_scripts/Benchmarks/baseline.sh">Benchmarks/baseline.sh</a> was run on each system (with some minor adaptation to change the interface name).</p>
                         <p align="justify">For figure 2, the plot_baseline.py script in the top-level of the xdata folder makes those plots.  Within that script, you’ll see the specific names of the datafiles that are used (all under baseline/?? where ?? is [pib,pi3,linux,freebsd] — pib is the pi1).</p>
-                        <p align="justify">To run the experiments and create the data, Benchmarks/baseline.sh was run on each system (with some minor adaptation to change the interface name).</p>
                     </div>
 
                     <div class="mastfoot">
