@@ -49,7 +49,7 @@ Valid parameters for each standard monitor are:
      
      * ``-M netstat:interval=5:en0``
 
-   * ``-M rtt:interface=IfaceName:rate=R:dest=D:type=ProbeType:maxttl=MaxTTL:proto=Protocol:allhops``
+   * ``-M rtt:interface=IfaceName:rate=R:dest=D:type=ProbeType:maxttl=MaxTTL:proto=Protocol:allhops:constflow``
      
      Monitor RTT along a path to destination ``D`` out of interface ``IfaceName``
      with probe rate ``R``.  Probe interval is gamma distributed.  The default
@@ -63,6 +63,8 @@ Valid parameters for each standard monitor are:
      ``Protocol`` is (icmp | tcp | udp) (for hop-limited probes).  Default is icmp.
 
      ``allhops``: probe all hops up to maxttl (for hop-limited probes)
+
+     ``constflow``: manipulate packet contents to force first 4 bytes of transport header to be constant (to make probes follow a constant path).  This parameter only has an affect on icmp; data are appended to force the checksum to be a constant value.  Note: udp/tcp probes always have const first 4 bytes.
 
 
 Here are some examples::

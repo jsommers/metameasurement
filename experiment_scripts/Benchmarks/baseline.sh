@@ -8,7 +8,6 @@ CPUPIN=$(($NCPU-1))
 CPUAFF="-C${CPUPIN}"
 SLEEP=5
 
-#for MON in cpu mem io netstat cpu:interval=5 rtt:interface=${INTF}:type=ping:dest=${DEST} rtt:interface=${INTF}:type=hoplimited:maxttl=1:dest=8.8.8.8 ; do
 for MON in cpu cpu:interval=5 rtt:interface=${INTF}:type=ping:dest=${DEST} rtt:interface=${INTF}:type=hoplimited:maxttl=1:dest=8.8.8.8 ; do
     MONNAME=`echo $MON | perl -pe 's/[:\.]/_/g' | perl -pe 's/=//g'`
     OUTNAME=baseline_${DURATION}_${MONNAME}
