@@ -106,16 +106,21 @@ class ICMPProbeHelper(ProbeHelper):
         return seq, ident
 
     @staticmethod
-    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, dport=44444):
+    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, constflow, dport=44444):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
         p += ICMP(icmptype=ICMPType.EchoRequest)
+        if constflow:
+            p[ICMP].icmpdata.data = b'\x00\x00'
         return p
 
     @staticmethod
-    def fill_in(p, ethdst, ttl, ident, seq):
+    def fill_in(p, ethdst, ttl, ident, seq, constflow):
         ProbeHelper.fill_in(p, ethdst, ttl)
         p[ICMP].icmpdata.sequence = seq
         p[ICMP].icmpdata.identifier = ident
+        if constflow:
+            x = 65535-(seq%65535) 
+            p[ICMP].icmpdata.data = bytes((x>>8, x&0xff))
 
 
 class TCPProbeHelper(ProbeHelper):
@@ -144,14 +149,14 @@ class TCPProbeHelper(ProbeHelper):
         return seq, ident
 
     @staticmethod
-    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, dport=DESTPORT):
+    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, constflow, dport=DESTPORT):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
         p += TCP(dst=dport, window=228)
         p[TCP].SYN = 1
         return p
 
     @staticmethod
-    def fill_in(p, ethdst, ttl, ident, seq):
+    def fill_in(p, ethdst, ttl, ident, seq, constflow):
         ProbeHelper.fill_in(p, ethdst, ttl)
         p[TCP].src = ident
         p[TCP].seq = seq
@@ -177,22 +182,27 @@ class UDPProbeHelper(ProbeHelper):
 
     @staticmethod
     def decode_carcass(p):
-        seq = p[IPv4].ipid
         ident = p[UDP].src
+        seq = p[UDP].checksum
         return seq, ident
 
     @staticmethod
-    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, dport=DESTPORT):
+    def make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl, constflow, dport=DESTPORT):
         p = ProbeHelper.make_packet_template(ethsrc, ipsrc, ipdst, proto, maxttl)
         p += UDP(dst=dport)
+        p += RawPacketContents(b'\x00\x00')
         return p
 
     @staticmethod
-    def fill_in(p, ethdst, ttl, ident, seq):
+    def fill_in(p, ethdst, ttl, ident, seq, constflow):
         ProbeHelper.fill_in(p, ethdst, ttl)
-        P[UDP].src = ident
-        p[IPv4].ipid = seq
-
+        p[UDP].src = ident 
+        p[IPv4].ipid = 0
+        p[-1] = RawPacketContents(b'\x00\x00')
+        p.to_bytes() # force csum computation
+        xtra = (p[UDP].checksum - seq) % 65535
+        bx = bytes([ xtra>>8, xtra&0xff ])
+        p[-1] = RawPacketContents(bx)
 
 _protomap = {
     'icmp': ICMPProbeHelper,
@@ -268,12 +278,13 @@ class RTTProbeSource(DataSource):
     '''
     _IDENTS = set()
 
-    def __init__(self, interface, probetype, proto, maxttl, allhops, dest):
+    def __init__(self, interface, probetype, proto, maxttl, allhops, dest, constflow):
         DataSource.__init__(self)
         self._interface = interface
         self._ifinfo = get_interface_info(self._interface)
         self._probetype = probetype
         self._probehelper = _protomap[proto]
+        self._constflow = constflow
 
         num_idents_needed = 1
         if self._probetype == 'ping':
@@ -291,7 +302,7 @@ class RTTProbeSource(DataSource):
         self._name = "rtt_{}_{}_{}".format(self._probetype, self._interface, self._dest)
 
         self._probeseq = 1
-        self._probewrap = 65536
+        self._probewrap = 65535
         self._num_probes_sent = self._num_probes_recv = 0
 
         self._arp_cache = ArpCache()
@@ -322,7 +333,7 @@ class RTTProbeSource(DataSource):
 
         self._pkttemplate = self._probehelper.make_packet_template(ifinfo.ethsrc, 
             ifinfo.ipsrc.ip, self._dest, self._probehelper.proto, 
-            self._maxttl, dport=DESTPORT)
+            self._maxttl, self._constflow, dport=DESTPORT)
 
         self._setup_port(interface, self._probehelper.pcapfilter)
 
@@ -509,7 +520,7 @@ class RTTProbeSource(DataSource):
 
         for ttl in range(start_ttl, end_ttl, -1):
             ident = self._ttltoident[ttl]
-            self._probehelper.fill_in(self._pkttemplate, ethdst, ttl, ident, seq)
+            self._probehelper.fill_in(self._pkttemplate, ethdst, ttl, ident, seq, self._constflow)
             self._send_packet(self._interface, self._pkttemplate)
             self._num_probes_sent += 1
             self._probecontainers[ident].put_user_send(seq, time())
@@ -591,6 +602,7 @@ def create(config):
         proto=(icmp|tcp|udp) # ping type implies icmp; default for hoplimited is icmp
         maxttl=1
         allhops=True
+        constflow=True
     '''
     if not 'interface' in config:
         raise ConfigurationError("Missing 'interface' config item for RTT monitor.")
@@ -616,6 +628,9 @@ def create(config):
         maxttl = int(config.pop('maxttl', 1))
         maxttl = max(maxttl, 1) 
         allhops = bool(config.pop('allhops', True))
+
+        if protostr == 'tcp':
+            DESTPORT = 80
     else:
         if 'proto' in config:
             logging.getLogger('mm').warn("Ignoring 'proto' config for 'ping' RTT monitor (must be icmp)")
@@ -632,9 +647,11 @@ def create(config):
             config.pop('allhops')
         allhops = False
 
+    constflow = int(config.pop('constflow', False))
+
     rate = float(config.pop('rate', 1))
     if config:
         raise ConfigurationError("Unrecognized configuration items for RTT monitor: {}".format(config))
     prober = RTTProbeSource(interface, probetype, protostr, 
-        maxttl, allhops, dest)
+        maxttl, allhops, dest, constflow)
     return SystemObserver(prober, _gamma_observer(rate))
