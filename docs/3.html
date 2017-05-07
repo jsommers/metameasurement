@@ -55,8 +55,15 @@
                     <h3 class="cover-heading">RTT performance overhead results.</h3><br/><br/>
 
                     <div class="pre-scrollable">
-                        <p align="justify">For figure 3, the plot_baseline.py script in the top-level of the xdata folder makes those plots.  Within that script, you’ll see the specific names of the datafiles that are used (all under baseline/?? where ?? is [pib,pi3,linux,freebsd] — pib is the pi1).</p>
-                        <p align="justify">To run the experiments and create the data, Benchmarks/baseline.sh was run on each system (with some minor adaptation to change the interface name).</p>
+                        <div class="col-md-6">
+                            <img src="3/pib_base_rtt.png" alt="inn_logo" style="height:260px;width:320px" title="Pi1 RTT overhead"/>
+                        </div>
+                        <div class="col-md-6">
+                            <img src="3/freebsd_base_rtt.png" alt="ccs_logo" style="height:260px;width:320px" title="FreeBSD RTT overhead"/>
+                        </div>
+                        <p align="center">RTT performance overhead results (Left: Raspberry Pi Model 1 B; Right: FreeBSD server)</p>
+                        <p align="justify">To run the experiments and create the data, <a href="https://github.com/jsommers/metameasurement/blob/master/experiment_scripts/Benchmarks/baseline.sh">Benchmarks/baseline.sh</a> was run on each system (with some minor adaptation to change the interface name)---specifically, on pib (known as pi1) and FreeBSD server. Corresponding json output files will be generated for each system.</p>
+                        <p align="justify">To plot the graphs, use <a href="https://github.com/jsommers/metameasurement/blob/master/docs/2/plot_baseline.py">plot_baseline.py</a> script and the data generated above.</p>
                     </div>
 
                     <div class="mastfoot">
