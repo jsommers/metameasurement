@@ -55,9 +55,19 @@
                     <h3 class="cover-heading">Artificial CPU load experiment.</h3><br/><br/>
 
                     <div class="pre-scrollable">
-                        <p align="justify">For figure 5, the load_detail.sh script was run (which in turn calls some python scripts).  
-                        To generate the data, Benchmarks/loadtests.sh was run (just cpu for this plot).
-                        </p>
+
+                        <div class="col-md-4">
+                            <img src="5/wlan0_cpu_detail_1_cdf.png" alt="inn_logo" style="height:160px;width:220px" title="RTTs between the Pi3 and the first hop (home router)"/>
+                        </div>
+                        <div class="col-md-4">
+                            <img src="5/wlan0_cpu_detail_2_cdf.png" alt="ccs_logo" style="height:160px;width:220px" title="RTTs between the Pi3 and the second hop"/>
+                        </div>
+                        <div class="col-md-4">
+                            <img src="5/wlan0_cpu_detail_p_cdf.png" alt="ccs_logo" style="height:160px;width:220px" title="RTTs to the scamper target IP address 8.8.8.8"/>
+                        </div>
+                        <p align="center">Artificial CPU load experiment. RTTs between Pi3 and first (left), second (center) and target (right) hops.</p> 
+                        <p align="justify">To generate the data, <a href="https://github.com/jsommers/metameasurement/blob/master/experiment_scripts/Benchmarks/loadTests.sh">Benchmarks/loadtests.sh</a> was run (only with cpu for this experiment).</p>
+                        <p align="justify">To plot the graphs, <a href="https://github.com/jsommers/metameasurement/blob/master/docs/5/load_detail.sh">load_detail.sh</a> script was run (which in turn calls <a href="https://github.com/jsommers/metameasurement/blob/master/docs/5/plot_load_detail.py">plot_load_detail.py</a>).</p>
                     </div>
 
                     <div class="mastfoot">
