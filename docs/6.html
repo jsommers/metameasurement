@@ -55,10 +55,13 @@
                     <h3 class="cover-heading">Artificial network load experiment.</h3><br/><br/>
 
                     <div class="pre-scrollable">
-                        <p align="justify">For figure 6, the following command is run (started via interfereplots.sh) (note that the command line has each name of the input data files).
-                        python3 interfere_plot.py --warts load/interfere/eth0_scp.warts --meta load/interfere/eth0_scp.json --metanone load/interfere/eth0_quiet.json -o eth0_scp --maxttl 3
-                        To generate the data, the Benchmarks/loadtests.sh was run as well, with “none” (to generate baseline data) and again with no explicit extra load, but changing the output file names.  The network load for this experiment was run through a separate script (not through loadtests.sh).  The network load was done through the xfer.sh script (in the data repository), which just created a file of zeroes of some size, then scp’ing it up and down every 10 sec.
-                        </p>
+                        <div class="col-md-6">
+                            <img src="6/eth0_scp_cdf.png" alt="inn_logo" style="height:260px;width:320px" title="Artificial network load experiment."/>
+                        </div><br/>
+                        <p align="center">Artificial network load experiment</p>
+ 
+                        <p align="justify">To generate the data, the <a href="https://github.com/jsommers/metameasurement/blob/master/experiment_scripts/Benchmarks/loadTests.sh">Benchmarks/loadtests.sh</a> was run, with “none” (to generate baseline data) and with no explicit extra load (but changing the output file names). The network load for this experiment was run using <a href="https://github.com/jsommers/metameasurement/blob/master/docs/6/xfer.sh">xfer.sh</a> script (which creates a file of zeroes of some size and uploads/downloads using scp every 10 sec.</p>
+                        <p align="justify">To plot the data, <a href="https://github.com/jsommers/metameasurement/blob/master/docs/6/interfereplots.sh">interfereplots.sh</a>, which in turn calls <a href="https://github.com/jsommers/metameasurement/blob/master/docs/6/interfere_plot.py">interfere_plot.py</a>, is run. Note that the command line has each name of the input data files.</p>
                     </div>
 
                     <div class="mastfoot">
