@@ -53,11 +53,15 @@
                     </div>
 
                     <h3 class="cover-heading">Probing rate results.</h3><br/><br/>
-
+                    
                     <div class="pre-scrollable">
-                        <p align="justify">For figure 4, send_microbench.sh is first executed (there are just two lines in that file, which cause two .txt files to be created from analyzing the data files), and then plot_microsend.py is run to produce the plot.
-                        To generate the data, the program Benchmarks/rateSendTest.py was run on each system.
-                        </p>
+                        <div class="col-md-6">
+                            <img src="4/send_microbench.png" alt="inn_logo" style="height:260px;width:320px" title="Performance results for a range of probing rates."/>
+                        </div><br/>
+                        <p align="center">Performance of the Pi1 and Pi3 when configured for a range of probing rates</p>
+
+                        <p align="justify">To generate the data, <a href="https://github.com/jsommers/metameasurement/blob/master/experiment_scripts/Benchmarks/rateSendTest.py">Benchmarks/rateSendTest.py</a> was run on each system (i.e., pi1 and pi3).</p>
+                        <p align="justify">To plot the data, <a href="4/send_microbench.sh">send_microbench.sh</a> is first executed, which produces two output files from analyzing the data files. Next, <a href="4/plot_microsend.py">plot_microsend.py</a> is run to produce the plot.
                     </div>
                     <div class="mastfoot">
                         <div class="inner">
