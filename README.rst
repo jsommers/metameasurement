@@ -109,7 +109,7 @@ Here are some examples::
 Reproducing our results
 -----------------------
 
-Check SoMeta [website](https://jsommers.github.io/metameasurement/) to reproduce our data (and results) at your end.
+Check SoMeta website (https://jsommers.github.io/metameasurement/) to reproduce our data (and results) at your end.
 
 License
 -------
