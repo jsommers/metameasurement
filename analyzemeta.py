@@ -46,6 +46,9 @@ def analyze_cpu(xli):
         m = mean(data[k])
         s = stdev(data[k])
         print("\t{}: {:.3f} ({:.3f})".format(k, m, s))
+        lowcpu = len([x for x in data[k] if x < 1])
+        if lowcpu > 0:
+            print("\t\t{} measurements had low (<1%) idle CPU".format(lowcpu))
 
 def analyze_mem(xli):
     if len(xli) == 0:

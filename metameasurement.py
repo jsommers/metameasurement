@@ -72,8 +72,8 @@ class MetadataOrchestrator(object):
     def _write_meta(self, commandline):
         proc = subprocess.run("uname -a", shell=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-        self._metadict['start'] = self._starttime
-        self._metadict['end'] = self._endtime
+        self._metadict['start'] = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
+        self._metadict['end'] = strftime("%Y%m%d_%H%M%S", gmtime(self._endtime))
         self._metadict['version'] = VERSION
         self._metadict['os'] = proc.stdout
         self._metadict['command'] = commandline
