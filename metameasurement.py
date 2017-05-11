@@ -12,7 +12,7 @@ import json
 import random
 import importlib
 
-VERSION = '2017.4.1'
+VERSION = '2017.5.1'
 
 class MetadataOrchestrator(object):
     def __init__(self, debug, quiet, fileprefix, filebase,
@@ -72,8 +72,10 @@ class MetadataOrchestrator(object):
     def _write_meta(self, commandline):
         proc = subprocess.run("uname -a", shell=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-        self._metadict['start'] = strftime("%Y%m%d_%H%M%S", gmtime(self._starttime))
-        self._metadict['end'] = strftime("%Y%m%d_%H%M%S", gmtime(self._endtime))
+        startfrac = int((self._starttime-int(self._starttime))*1000000)
+        self._metadict['start'] = "{}.{:06d}".format(strftime("%Y%m%d_%H%M%S", gmtime(self._starttime)), startfrac)
+        endfrac = int((self._endtime-int(self._endtime))*1000000)
+        self._metadict['end'] = "{}.{:06d}".format(strftime("%Y%m%d_%H%M%S", gmtime(self._endtime)), endfrac)
         self._metadict['version'] = VERSION
         self._metadict['os'] = proc.stdout
         self._metadict['command'] = commandline
