@@ -71,7 +71,11 @@ class InterfaceInfo(object):
 def read_system_arp_cache():
     arp_map = {}
     cmd = "/usr/sbin/arp -na"
-    s = check_output(cmd, shell=True, universal_newlines=True)
+    try:
+        s = check_output(cmd, shell=True, universal_newlines=True)
+    except:
+        return arp_map
+
     ethip = re.compile(r'(?P<ip>(\d{1,3}\.){3}\d{1,3})[\)\s\w]+ (?P<eth>([a-fA-F0-9]{1,2}:){5}[a-fA-F0-9]{1,2})')
     for line in s.split('\n'):
         mobj = ethip.search(line)
