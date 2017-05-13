@@ -12,7 +12,7 @@ import os
 from math import isinf
 from enum import Enum
 
-from numpy import min_scalar_type, iinfo
+#from numpy import min_scalar_type, iinfo
 
 def _periodic_observer(interval):
     interval = float(interval)
@@ -41,8 +41,15 @@ def _compute_diff_with_wrap(curr, last):
     diff = curr - last
     if diff >= 0:
         return diff
-    dtype = min_scalar_type(last)
-    dtypemax = iinfo(dtype).max
+    bits = last.bit_length()
+    if bits <= 16:
+        dtypemax = 2**16-1
+    elif bits <= 32:
+        dtypemax = 2**32-1
+    else:
+        dtypemax = 2**64-1
+    #dtype = min_scalar_type(last)
+    #dtypemax = iinfo(dtype).max
     return curr + (dtypemax - last)
 
 
