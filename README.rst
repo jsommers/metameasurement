@@ -111,6 +111,13 @@ Reproducing our results
 
 Check SoMeta website (https://jsommers.github.io/metameasurement/) to reproduce our data (and results) at your end.
 
+Credits
+-------
+
+I gratefully acknowledge support from the National Science Foundation.  The materials here are based upon work supported by the NSF under grant CNS-1054985 ("CAREER: Expanding the functionality of Internet routers").
+
+Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author and do not necessarily reflect the views of the National Science Foundation.
+
 License
 -------
 
