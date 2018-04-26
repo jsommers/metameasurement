@@ -421,6 +421,9 @@ class RTTProbeSource(DataSource):
         ts = p.timestamp
         ptup = (name,ts,pkt)
 
+        if isinstance(pkt, RawPacketContents):
+            return
+
         if pkt.has_header(Arp) and pkt[Arp].operation == ArpOperation.Reply: 
             a = pkt[Arp]
             self._arp_queue.put_nowait((a.senderhwaddr, a.senderprotoaddr))
