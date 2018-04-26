@@ -447,8 +447,11 @@ class RTTProbeSource(DataSource):
                 self._probe_queue.put_nowait((ts,seq,pkt[IPv4].src,ident,received_ttl,direction))
                 return
             elif pkt[ICMP].icmptype == ICMPType.TimeExceeded:
-                p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
-                if p.has_header(self._probehelper.klass):
+                try:
+                    p = self._probehelper.reconstruct_carcass(pkt[ICMP].icmpdata.data)
+                except:
+                    p = None
+                if p is not None and p.has_header(self._probehelper.klass):
                     seq, ident = self._probehelper.decode_carcass(p)
                     if ident in self._pktident and p[IPv4].dst == self._dest:
                         received_ttl = pkt[IPv4].ttl
