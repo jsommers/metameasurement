@@ -3,6 +3,8 @@ SoMeta
 
 Automatic collection of network measurement metadata.
 
+A newly rewritten version of this tool in Go is available at https://github.com/jsommers/someta.  No further updates will be made to this repo.
+
 Installation
 ------------
 
